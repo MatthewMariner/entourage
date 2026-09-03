@@ -44,28 +44,48 @@ import net.runelite.api.coords.WorldPoint;
  * four rules and a bug.
  *
  * <p><b>What this class adds is the failure handling, which the API has none of.</b>
- * Every one of the following is an unchecked throw out of {@code canTravelInDirection}
- * on live data, verified in the same disassembly:
+ * Six ways of not getting an answer, all of them from the same disassembly — and
+ * <b>three of them can happen to a follower and three cannot</b>, which is a
+ * distinction the first version of this list did not make:
  * <ul>
- *   <li>the area is outside the loaded scene — it calls
+ *   <li><b>Reachable.</b> The area is outside the loaded scene — it calls
  *       {@code LocalPoint.fromWorld(worldView, x, y)} and then {@code getSceneX()} on
  *       the result with no null check, and {@code fromWorld} returns {@code null} off
- *       the scene: <b>NPE</b>;</li>
- *   <li>the plane has no collision map yet — it indexes
- *       {@code getCollisionMaps()[plane]} and calls {@code getFlags()} on the element
- *       with no null check, and the client allocates that array with four empty slots
- *       before the scene is built: <b>NPE</b>;</li>
- *   <li>the plane is outside that array: <b>ArrayIndexOutOfBoundsException</b>;</li>
- *   <li>the destination tile is off the edge of the flags array — it indexes
- *       {@code flags[sceneX + dx][sceneY + dy]} unconditionally:
+ *       the scene: <b>NPE</b>. Both the tile being left and the tile being entered can
+ *       be off the scene, and they fail differently, which is why the guard below
+ *       checks both.</li>
+ *   <li><b>Reachable.</b> The destination tile is off the edge of the flags array — it
+ *       indexes {@code flags[sceneX + dx][sceneY + dy]} unconditionally:
  *       <b>ArrayIndexOutOfBoundsException</b>.</li>
+ *   <li><b>Reachable, and silent rather than loud.</b> A non-top-level
+ *       ({@code WorldEntity}) view: see below.</li>
+ *   <li><b>Not reachable, kept as a check anyway.</b> The plane has no collision map —
+ *       it indexes {@code getCollisionMaps()[plane]} and calls {@code getFlags()} on
+ *       the element with no null check. In the injected client that array is created
+ *       once, in the world view's own constructor, as {@code new gc[4]} with all four
+ *       slots filled by a loop before the constructor returns, so on live data the
+ *       element is never {@code null}: <b>NPE</b> only against an implementation that
+ *       is not the injected one.</li>
+ *   <li><b>Not reachable, same reasoning.</b> The plane is outside that array
+ *       ({@code < 0} or {@code >= 4}): <b>ArrayIndexOutOfBoundsException</b>. Every
+ *       plane this plugin asks about traces back to a {@code WorldView}'s own
+ *       {@code getPlane()}, which is one of the four.</li>
+ *   <li><b>Not reachable.</b> {@code getCollisionMaps()} itself {@code null} — the one
+ *       failure the API does handle, and it handles it by returning {@code false},
+ *       i.e. "blocked", which is the wrong answer to give a caller who could instead
+ *       wait. The field behind it has exactly one assignment, in that same constructor,
+ *       so a live client never returns {@code null} here either.</li>
  * </ul>
- * It handles exactly one of its own failures, returning {@code false} when
- * {@code getCollisionMaps()} is itself {@code null} — and {@code false} there means
- * "blocked", which is the wrong answer to give a caller who could instead wait.
- * A follower asks this question every game tick from an event handler, so an
- * exception is not an inconvenience: it abandons the rest of the pass. Every one of
- * those cases comes back from here as {@link Verdict#UNKNOWN} instead.
+ * <b>The three unreachable ones are checks, not dead code, and the distinction is the
+ * point.</b> {@code WorldView} is an interface; this plugin does not construct the
+ * implementation and does not get to promise anything about it. A follower asks this
+ * question every game tick from an event handler, where an exception is not an
+ * inconvenience but the abandonment of the rest of the pass — including whatever was
+ * supposed to be deactivated in it. A branch that costs a comparison and converts an
+ * unowned throw into {@link Verdict#UNKNOWN} is worth keeping even when today's client
+ * cannot take it. What is <i>not</i> worth keeping is the claim that it happens: an
+ * earlier version of this javadoc said the client "allocates that array with four empty
+ * slots before the scene is built", and it does not.
  *
  * <p><b>{@link Verdict#UNKNOWN} is not "probably fine".</b> It is what the caller
  * gets whenever there is no answer, and {@link FollowerWalk} treats it exactly like
@@ -149,8 +169,9 @@ final class WalkableStep
 		CollisionData map = maps[plane];
 		if (map == null)
 		{
-			// The array is allocated with four slots before the scene is built, so
-			// this is the ordinary "not loaded yet" case rather than an error.
+			// Not something the injected client does — it fills all four slots in the
+			// world view's constructor — but WorldView is an interface, and the cost of
+			// being wrong about that is an NPE out of a game-tick handler.
 			return Verdict.UNKNOWN;
 		}
 
@@ -162,10 +183,18 @@ final class WalkableStep
 
 		// The same subtraction the API does internally, done here first so that the
 		// two array reads it is about to make unguarded are known to be in range.
-		// Bounded by getSizeX()/getSizeY() rather than by Constants.SCENE_SIZE: the
-		// client allocates the flags array from those two, and WorldPoint.isInScene
-		// tests against those two, whereas LocalPoint.isInScene() hardcodes
-		// 104 * 128 and would be wrong on an extended scene.
+		//
+		// Bounded by the flags array's own dimensions — flags.length and
+		// column.length in within(..) below — and not by getSizeX()/getSizeY(), and
+		// certainly not by Constants.SCENE_SIZE, which LocalPoint.isInScene() hardcodes
+		// as 104 * 128 and which is already wrong on an extended scene. For a top-level
+		// view the three agree: the injected client's collision-map constructor takes
+		// the top-level branch and allocates exactly sizeX by sizeY. They stop agreeing
+		// inside a WorldEntity, where the other branch allocates (sizeX + 6) by
+		// (sizeY + 6) around an origin at scene (-1, -1). That is the case the
+		// isTopLevel() check above refuses, and it is the reason the bound checked here
+		// is the array about to be indexed rather than a number that merely happens to
+		// equal it.
 		int sceneX = from.getX() - worldView.getBaseX();
 		int sceneY = from.getY() - worldView.getBaseY();
 		if (!within(flags, sceneX, sceneY) || !within(flags, sceneX + stepX, sceneY + stepY))

@@ -243,6 +243,44 @@ public class FollowerTest
 			before + 30, client.lastObject().setLocationCalls());
 	}
 
+	/**
+	 * <b>The sequence no other test plays: stand still, settle, then walk.</b>
+	 * {@code aWalkingFollowerIsRePlacedEveryFrame} goes spawn, walk, frames — so the
+	 * "this follower has stopped, skip it" flag is still false from the spawn and the
+	 * skip is never armed. {@code aStandingFollowerIsNotRePlacedEveryFrame} arms it and
+	 * then never walks. Between the two of them, the line that hands the frame pass back
+	 * its work at the end of every game tick could be deleted and leave every test that
+	 * existed before this one green — while in a live client that is a follower which
+	 * freezes, permanently, the first time the player stands still and then moves off.
+	 */
+	@Test
+	public void aFollowerThatStoodStillIsDrawnMovingAgainWhenItWalks()
+	{
+		Follower follower = follower();
+		follower.onGameTick(ANCHOR, view);
+
+		// Stand still, and let the frame pass settle it — which is the state the next
+		// game tick has to undo.
+		follower.onGameTick(ANCHOR, view);
+		for (int frame = 0; frame < 30; frame++)
+		{
+			follower.advanceFrame(view, frame / 30f);
+		}
+		int whileStanding = client.lastObject().setLocationCalls();
+
+		follower.onGameTick(ANCHOR.dx(6), view);
+		assertTrue("this test needs it actually walking", follower.getWalk().isMoving());
+
+		follower.advanceFrame(view, 0f);
+		int start = follower.getRenderLocation().getX();
+		follower.advanceFrame(view, 1f);
+		int end = follower.getRenderLocation().getX();
+
+		assertEquals("a game tick has to hand the frame pass its work back",
+			whileStanding + 2, client.lastObject().setLocationCalls());
+		assertEquals("one tile, in local units", 128, end - start);
+	}
+
 	@Test
 	public void theDrawnPositionMovesAcrossTheStep()
 	{
@@ -282,6 +320,53 @@ public class FollowerTest
 		follower.onGameTick(ANCHOR.dx(6), view);
 
 		assertEquals(StepOrientation.forStep(1, 0), follower.getRenderOrientation());
+	}
+
+	/**
+	 * <b>Everything else about the model is asserted on the way in.</b> The merge count,
+	 * the recolours, the clone-before-recolour order and the lighting are all read off
+	 * {@link FakeModelData} — which is to say off the thing that was <i>built</i>, not off
+	 * the object that has to draw it. Nothing asked the object what it ended up holding,
+	 * and a registered {@code RuneLiteObject} with a null base model is an entourage that
+	 * draws nothing at all.
+	 */
+	@Test
+	public void theLitModelReachesTheObject()
+	{
+		Follower follower = follower();
+		follower.onGameTick(ANCHOR, view);
+
+		assertTrue(follower.isActive());
+		assertNotNull("a registered object with no base model is a figure that draws nothing",
+			client.lastObject().getBaseModel());
+	}
+
+	/**
+	 * <b>Every other test in this class runs on plane 0, where the follower's plane and a
+	 * hardcoded zero are the same number.</b> They are not the same number upstairs, and
+	 * {@code setLocation}'s second argument is the level the client draws the object on —
+	 * so a figure that follows you up a staircase and keeps being placed on the ground
+	 * floor is a figure drawn through the floor you are standing on.
+	 */
+	@Test
+	public void theObjectIsPlacedOnThePlaneTheFollowerIsOn()
+	{
+		WorldPoint upstairs = new WorldPoint(ANCHOR.getX(), ANCHOR.getY(), 2);
+		FakeWorldView upstairsView = FakeWorldView.around(upstairs);
+		client.setTopLevelWorldView(upstairsView);
+		Follower follower = new Follower(client, EntourageFigure.ROGUE, upstairs);
+
+		follower.onGameTick(upstairs, upstairsView);
+
+		assertTrue(follower.isActive());
+		assertEquals("the spawn places it on its own plane, not on the ground floor",
+			2, client.lastObject().getLevel());
+
+		follower.onGameTick(upstairs.dx(6), upstairsView);
+		assertTrue("this test needs it actually walking", follower.getWalk().isMoving());
+		follower.advanceFrame(upstairsView, 0.5f);
+
+		assertEquals("and so does every frame of the walk", 2, client.lastObject().getLevel());
 	}
 
 	// --- A cold cache --------------------------------------------------------

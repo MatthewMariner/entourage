@@ -71,6 +71,24 @@ final class FakePlayer extends StubPlayer
 		return new FakePlayer(new LocalPoint(-1, -1, view), claimedTile);
 	}
 
+	/**
+	 * A player drawn in the middle of the tile at the given <i>scene</i> coordinates,
+	 * whether or not that tile is inside the view's rectangle.
+	 *
+	 * <p>Built from the coordinates rather than through {@code LocalPoint.fromWorld},
+	 * which returns {@code null} off the scene and so cannot express a player one row
+	 * past the edge — which is the case {@link FollowerAnchor}'s bounds check exists for
+	 * and the only way to prove it tests {@code sceneY} against {@code getSizeY()} rather
+	 * than against {@code getSizeX()}.
+	 */
+	static FakePlayer atSceneTile(WorldView view, int sceneX, int sceneY)
+	{
+		// The centre of a tile, which is what LocalPoint.fromScene builds: (scene << 7) + 64.
+		return new FakePlayer(
+			new LocalPoint((sceneX << 7) + 64, (sceneY << 7) + 64, view),
+			new WorldPoint(view.getBaseX() + sceneX, view.getBaseY() + sceneY, view.getPlane()));
+	}
+
 	private static LocalPoint centreOf(WorldView view, WorldPoint tile)
 	{
 		LocalPoint point = LocalPoint.fromWorld(view, tile);

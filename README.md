@@ -53,10 +53,16 @@ registered object; a second caller runs every animation at double speed.
 
 ### The animations
 
-`NPCComposition` gives you models and recolours and **no animation ids at all** —
-`javap` on the 1.12.38 interface lists name, models, chathead models, ops,
-actions, interactible, minimap-visible, id, combat level, configs, `transform()`
-and size, and not one of those is a sequence. A figure dressed that way and left
+`NPCComposition` gives you models and recolours and **no animation ids at all**.
+`javap` on the 1.12.38 interface lists, in full: `getName`, `getModels`,
+`getChatheadModels`, `getOps`, `getActions`, `isInteractible`,
+`isMinimapVisible`, `getId`, `getCombatLevel`, `getConfigs`, `transform`,
+`getSize`, `isFollower`, `getColorToReplace`, `getColorToReplaceWith`,
+`getWidthScale`, `getHeightScale`, `getFootprintSize` and `getStats`, plus the
+parameter accessors it inherits from `ParamHolder` — and not one of those is a
+sequence. (This list used to stop at `getSize`, which quietly dropped the two
+recolour accessors `FollowerAppearance` itself calls. An incomplete list
+attributed to `javap` is worse than no list.) A figure dressed that way and left
 alone is a static mesh: standing still that reads as a statue, and walking it is
 a body sliding across the ground, which is the single most visible way this
 plugin could look broken.
@@ -88,26 +94,48 @@ corner bit and both orthogonal half-steps, so a figure cannot cut the corner of 
 doorframe. Reimplementing that from `CollisionDataFlag` would have been three of
 those four rules and a bug.
 
-What `WalkableStep` adds is the failure handling, which the API has none of. Each
-of these throws out of `canTravelInDirection` on live data — verified by
-disassembly, and two of them are pinned by tests that assert the raw API really
-does throw:
+What `WalkableStep` adds is the failure handling, which the API has none of. All
+six rows below are what the raw API really does — verified by disassembly, and
+three of them pinned by tests that assert it. **Three of the six can happen to a
+follower and three cannot**, and saying which is which is the difference between
+a wrapper that is justified and one that is decorated:
 
-| Situation | Raw API | `WalkableStep` |
-| --- | --- | --- |
-| Tile outside the loaded scene | `NullPointerException` | `UNKNOWN` |
-| Destination off the edge of the flags array | `ArrayIndexOutOfBoundsException` | `UNKNOWN` |
-| No collision map for that plane yet | `NullPointerException` | `UNKNOWN` |
-| Plane outside the map array | `ArrayIndexOutOfBoundsException` | `UNKNOWN` |
-| `getCollisionMaps()` itself null | `false`, i.e. "blocked" | `UNKNOWN` |
-| Non-top-level (`WorldEntity`) view | answers about the wrong tile, silently | `UNKNOWN` |
+| Situation | Raw API | `WalkableStep` | Reachable on live data |
+| --- | --- | --- | --- |
+| Tile outside the loaded scene | `NullPointerException` | `UNKNOWN` | **yes** |
+| Destination off the edge of the flags array | `ArrayIndexOutOfBoundsException` | `UNKNOWN` | **yes** |
+| Non-top-level (`WorldEntity`) view | answers about the wrong tile, silently | `UNKNOWN` | **yes** |
+| No collision map for that plane | `NullPointerException` | `UNKNOWN` | no |
+| Plane outside the map array | `ArrayIndexOutOfBoundsException` | `UNKNOWN` | no |
+| `getCollisionMaps()` itself null | `false`, i.e. "blocked" | `UNKNOWN` | no |
 
-That last row is the one that matters most. The client sizes a non-top-level
-collision map with its origin one tile to the south-west, and
+The bottom three are not reachable because the injected client's world view
+allocates its collision array in its own constructor — `new gc[4]`, the field's
+only assignment — and fills all four slots in a loop before that constructor
+returns. So `getCollisionMaps()` is never null and no element of it is either,
+and every plane this plugin asks about traces back to a `WorldView`'s own
+`getPlane()`, which is one of the four.
+They stay as checks anyway: `WorldView` is an interface this plugin does not
+implement and cannot make promises about, and each of the three costs one
+comparison to convert somebody else's throw into an `UNKNOWN`. A follower asks
+this question from a game-tick handler, where an exception is not an
+inconvenience — it abandons the rest of the pass, including whatever was supposed
+to be deactivated in it.
+
+The third row is the one that matters most, and it is the one that is both
+reachable and silent. The client sizes a non-top-level collision map as
+`(sizeX + 6) × (sizeY + 6)` with its origin at scene `(-1, -1)`, and
 `canTravelInDirection` indexes with plain scene coordinates either way — so
 inside a world entity it answers confidently about the tile diagonally behind the
 one asked about. Off-by-one and silent is exactly the shape of wrong that puts a
 figure half inside a wall.
+
+The first row has two halves, and only one of them is obvious: the tile being
+*left* can be off the scene as well as the tile being *entered*, and stepping
+inwards from outside gets past a destination-only bounds check and straight into
+the API's NPE. The recall keeps a follower well inside the scene, so this is a
+guard for a case that should not arise — which is a reason to test it, not a
+reason to trust it.
 
 **`UNKNOWN` is not "probably fine".** `FollowerWalk` treats it exactly as it
 treats `BLOCKED`: the step is skipped. That is the discipline `../lively-cities`
@@ -129,6 +157,23 @@ queued tiles in one game tick.
 tile it sits in. `FollowerAnchorTest` pins both halves: that a running player
 anchors on the tile he is *drawn* in rather than the one the server has him on,
 and — the stronger claim — that `getWorldLocation()` is never read at all.
+
+### Instances work, by construction rather than by luck
+
+Every `WorldPoint` in this plugin is built out of a world view's `getBaseX()` and
+`getBaseY()` and consumed by subtracting the same two: `FollowerAnchor` adds
+them, `WalkableStep` takes them off again, and `LocalPoint.fromWorld` does the
+same subtraction internally. So the coordinates round-trip exactly, and the
+plugin never needs them to mean anything in the overworld. **That is why it is
+correct inside a POH, a raid, or any other instanced scene**, where a
+scene-derived `WorldPoint` is emphatically *not* the tile a player would name if
+you asked them where they were.
+
+It is worth writing down because it is a property that can be lost silently. Any
+future feature that compares one of these points against a region id, a fixed
+landmark, or anything from `WorldPoint.fromLocalInstance` is comparing two
+different coordinate spaces, and it will be wrong in exactly the places that are
+hardest to test.
 
 ### "I don't know where the player is" is a branch, not an accident
 
@@ -165,6 +210,18 @@ and checked in) and `Fake*` classes (the handful of methods this plugin actually
 calls). `EntouragePluginTest` is the `./gradlew run` entry point and lives there
 because dev tooling has no business in a shipped jar.
 
+`FakeWorldView` has two factories and they are not interchangeable. `around(..)`
+is the top-level view's own shape — a centred 104-tile square — and is what almost
+every test wants. `rectangular(..)` has two different bases and two different
+sizes, and it exists because a square scene centred by the client's own
+arithmetic cannot tell `getBaseX()` from `getBaseY()`, `getSizeX()` from
+`getSizeY()`, or `flags[x][y]` from `flags[y][x]`. No *top-level* view is ever
+that shape — though the client's world-view constructor takes the two sizes
+separately, and a `WorldEntity`'s view really is whatever rectangle the entity is
+— so it is the shape of a case currently refused rather than one that cannot
+exist. See *Testing discipline* below for the six real mutations that survived on
+the square fixture alone.
+
 ## Known limitations
 
 - **This is greedy stepping, not pathfinding.** A follower tries the diagonal
@@ -175,9 +232,21 @@ because dev tooling has no business in a shipped jar.
   own tile — ground the player is standing on, so ground a figure can be on —
   rather than a search for a free tile nearby, which is how a deterministic
   placement stops being deterministic.
-- **A recall is a pop, not an entrance.** The follower appears on the player's
-  tile and steps off it on the next tick. Making that look deliberate is what an
-  entrance effect would be for, and that is a later slice.
+- **The follower cannot run, so a running player outruns it — permanently.** A
+  run is two tiles a game tick and the follower walks one, so the gap grows by a
+  tile a tick and never stops growing. At `RECALL_DISTANCE` that is a recall
+  every twelve ticks: **one every 7.2 seconds, for as long as anybody is
+  running.** `FollowerWalkTest` measures it against `FollowerWalk` itself rather
+  than asserting it from the arithmetic, so this bullet goes red the day it stops
+  being true. No number in `RECALL_DISTANCE` fixes this — a larger one just makes
+  each absence longer — and the fix is a run speed, which is a design change with
+  its own review rather than something to slip into a movement slice.
+- **A recall is a pop, not an entrance, and it is the normal case rather than an
+  edge case.** The follower appears on the player's tile and steps off it on the
+  next tick. Because of the bullet above, that is what travelling with an
+  entourage looks like most of the time, not something that happens when the
+  geometry goes wrong. Making it look deliberate is what an entrance effect would
+  be for, and that is a later slice.
 - **One figure.** Formation shapes, pose variety and any config surface are later
   slices. `EntourageFigure.DEFAULT_ROSTER` is the seam they extend.
 - **No menu entries at all.** A `RuneLiteObject` is not clickable unless a plugin
@@ -218,7 +287,12 @@ the code — each is stated as an open question where it lives.
 3. **How far ahead does the server tile actually run?** That
    `getWorldLocation()` is the wrong field is settled by disassembly. How many
    tiles of error that is worth at a full run is an observation.
-4. **Does the recall look acceptable?** Twelve tiles is reasoned, not measured.
+4. **Does the recall look acceptable?** How *often* it happens is now measured
+   rather than reasoned — every twelve ticks of continuous running, see *Known
+   limitations* — so the open question is no longer the number but the moment:
+   whether a figure reappearing on your tile every seven seconds reads as a
+   glitch, and whether that makes a run speed the next slice rather than a later
+   one.
 5. **Is one tile of following distance right?** A follower at Chebyshev distance
    1 may read as crowding.
 
@@ -248,13 +322,63 @@ the condition flipped, the return hardcoded — and the test is confirmed to go
 red. A test that stays green through the mutation it exists to catch is worse
 than no test, because it reads as coverage that is not there.
 
-Fifty-one mutations have been run against this tree. One survived, and it was a
-real defect in the test rather than in the mutation:
+**Three passes so far, and the second one is the interesting one.**
+
+The **first pass** ran fifty-one mutations. One survived, and it was a real
+defect in the test rather than in the mutation:
 `itTurnsToFaceThePlayerWhenItStops` walked the follower east and then asserted it
 was facing east — which is what it was already facing from its last step, so
 deleting the turn-to-face entirely left the test green. It only became a test
 once the anchor moved *past* the follower, so that "the way it was walking" and
 "the way the player is" are different answers.
+
+The **second pass** was independent and ran **117 mutations against 134 green
+tests. Twenty-eight survived, and six of those were real defects** — shipped code
+that was correct, guarded by nothing, and one keystroke from being wrong. "51
+mutations, one survived" was not false, but it read a great deal stronger than it
+was, and the difference was not the code: it was that a bigger pass asks
+questions a smaller one does not. What the six had in common is that each needed
+a *sequence* no test played, or a *fixture* no test had:
+
+- the follower's per-frame "it has stopped, skip it" flag is cleared at the end
+  of every game tick, and no test ran a frame pass between a stationary tick and
+  a walking one — so deleting that line left all 134 green while a live follower
+  would freeze for the session the first time the player stood still;
+- no test took two consecutive steps, so the line that hands the interpolation
+  origin forward was unguarded;
+- nothing asserted the lit model reached the object, only that it was built;
+- the bounds check's source half was untested — every test stepped outwards, none
+  stepped inwards from outside;
+- every station test used orthogonal geometry, so Chebyshev and Manhattan were
+  indistinguishable and nothing stopped a follower standing inside the player;
+- and the plane was hardcodeable to zero in two places, because every test ran on
+  plane 0.
+
+**A fixture can hide a whole class of defect, and this one hid six more.** The
+scene fixture centred a 104-tile square on the player, which gives `baseX ==
+baseY == 3168` and `sizeX == sizeY == 104`. On numbers like those, `getBaseX()`
+and `getBaseY()` are interchangeable, `getSizeX()` and `getSizeY()` are
+interchangeable, and `flags[sceneX][sceneY]` and `flags[sceneY][sceneX]` are the
+same expression — so six axis-transposition mutations across `WalkableStep` and
+`FollowerAnchor` survived on the fixture alone, in code that reads the two axes
+separately *on purpose*. `FakeWorldView.rectangular(..)` is the answer: two
+different bases and two different sizes, precisely so that a reader which confused
+the axes has somewhere to fail. Adding
+it killed all six, and a seventh nobody had listed — `within(..)`'s upper bound on
+`sceneY`, which no test had ever stepped past because no test stepped north or
+south off the edge of the array.
+
+The second pass also found a test that could not fail
+(`assertEquals(view.getId(), ..getWorldView())`, where the top-level view's id is
+`WorldView.TOPLEVEL`, which is `0`, and `new LocalPoint(x, y)` hardcodes `0` — so
+it read `assertEquals(0, 0)`), a latent teardown leak, and a documented
+justification that was arithmetically wrong. All are fixed above.
+
+The **third pass** was twenty-six mutations: one per defect to prove the new test
+catches it, one per fixture-hidden transposition, and eleven on the guards
+*neighbouring* everything that changed. That last group is not ceremony — this
+project has now had three cases where adding a constraint quietly made an older
+test vacuous. None of the eleven survived.
 
 ## License
 

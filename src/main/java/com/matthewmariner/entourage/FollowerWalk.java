@@ -78,10 +78,19 @@ final class FollowerWalk
 	 * <p>This exists because the stepping above is greedy. A follower that has walked
 	 * into a dead end cannot reason its way out of one, and the alternative to a
 	 * recall is a figure left standing in a doorway in Varrock for the rest of the
-	 * session. Twelve tiles is comfortably outside the distance a follower falls
-	 * behind a running player on open ground — a run is two tiles a tick against the
-	 * follower's one, so an honest tail is a handful of tiles — and comfortably inside
-	 * the scene, so the anchor tile is still one this plugin can place an object on.
+	 * session. Twelve tiles is comfortably inside the scene, so the anchor tile is
+	 * still one this plugin can place an object on.
+	 *
+	 * <p><b>It is not comfortably outside the distance a follower falls behind a
+	 * running player, and nothing at this distance could be.</b> A run is two tiles a
+	 * game tick against the follower's one, so the gap grows by a tile a tick and keeps
+	 * growing: whatever number goes here, continuous running reaches it. Twelve tiles
+	 * makes that every twelve ticks — one recall every 7.2 seconds, which
+	 * {@code FollowerWalkTest} measures against this class rather than asserting from
+	 * the arithmetic. The cause is that a follower has no run speed; giving it one is a
+	 * design change with its own review, and until then the honest statement is that a
+	 * recall is a normal part of travelling rather than an edge case. Raising this
+	 * number would only make each recall a longer absence.
 	 *
 	 * <p>A plane change recalls unconditionally. A staircase is not a distance.
 	 */

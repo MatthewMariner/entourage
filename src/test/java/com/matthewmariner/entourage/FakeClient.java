@@ -76,6 +76,12 @@ final class FakeClient extends StubClient
 	/** Accepts the register call and does nothing with it. */
 	private boolean refuseRegistration;
 
+	/** Throws out of {@code removeRuneLiteObject}, leaving the object registered. */
+	private boolean throwFromRemoval;
+
+	/** Throws out of {@code isRuneLiteObjectRegistered}. */
+	private boolean throwFromRegistrationCheck;
+
 	private FakeRuneLiteObject lastObject;
 	private FakeModelData lastMerged;
 	private int mergeCalls;
@@ -118,12 +124,20 @@ final class FakeClient extends StubClient
 	@Override
 	public void removeRuneLiteObject(RuneLiteObjectController controller)
 	{
+		if (throwFromRemoval)
+		{
+			throw new IllegalStateException("the client will not let go of this object");
+		}
 		registered.remove(controller);
 	}
 
 	@Override
 	public boolean isRuneLiteObjectRegistered(RuneLiteObjectController controller)
 	{
+		if (throwFromRegistrationCheck)
+		{
+			throw new IllegalStateException("the client will not say whether it has this object");
+		}
 		return registered.contains(controller);
 	}
 
@@ -137,6 +151,25 @@ final class FakeClient extends StubClient
 	FakeClient refusingRegistration()
 	{
 		refuseRegistration = true;
+		return this;
+	}
+
+	/**
+	 * {@code setActive(false)} blows up and the object stays registered — the state in
+	 * which forgetting a follower leaks the object it was holding. No realistic in-client
+	 * trigger for this is known; it is here because the teardown promise is unconditional,
+	 * and a promise nothing can falsify is not one.
+	 */
+	FakeClient refusingDeactivation()
+	{
+		throwFromRemoval = true;
+		return this;
+	}
+
+	/** The client will not even say whether it has an object. */
+	FakeClient withThrowingRegistrationChecks()
+	{
+		throwFromRegistrationCheck = true;
 		return this;
 	}
 

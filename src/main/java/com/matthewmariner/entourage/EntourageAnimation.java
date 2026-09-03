@@ -8,15 +8,23 @@ import net.runelite.api.gameval.AnimationID;
  * <p><b>An {@code NPCComposition} cannot supply these, and that is the gap this
  * class exists to close.</b> Dressing a figure from an NPC — which is what
  * {@link FollowerAppearance} does — gives you {@code getModels()} and the recolour
- * pairs, and nothing else. There is no {@code getStandAnimation()} on it: the
- * interface in 1.12.38 exposes name, models, chathead models, ops, actions,
- * interactible, minimap-visible, id, combat level, configs, {@code transform()} and
- * size, and none of those is a sequence id. A figure built that way and left alone
- * is a static mesh. Standing still, that reads as a statue; <b>walking, it is a body
- * sliding across the ground</b>, which is the single most visible way a follower
- * plugin can look broken.
+ * pairs, and nothing else. There is no {@code getStandAnimation()} on it.
+ * {@code javap net.runelite.api.NPCComposition} against 1.12.38 lists, in full:
+ * {@code getName}, {@code getModels}, {@code getChatheadModels}, {@code getOps},
+ * {@code getActions}, {@code isInteractible}, {@code isMinimapVisible}, {@code getId},
+ * {@code getCombatLevel}, {@code getConfigs}, {@code transform}, {@code getSize},
+ * {@code isFollower}, {@code getColorToReplace}, {@code getColorToReplaceWith},
+ * {@code getWidthScale}, {@code getHeightScale}, {@code getFootprintSize} and
+ * {@code getStats} — plus whatever {@code ParamHolder} contributes, which is
+ * parameters rather than anything sequence-shaped. Not one of them is a sequence id.
+ * (An earlier version of this list stopped at {@code getSize} and so omitted the two
+ * recolour accessors {@link FollowerAppearance} itself calls, which was an odd thing
+ * for a list attributed to {@code javap} to be missing.) A figure built that way and
+ * left alone is a static mesh. Standing still, that reads as a statue; <b>walking, it
+ * is a body sliding across the ground</b>, which is the single most visible way a
+ * follower plugin can look broken.
  *
- * <p><b>Where the ids come from.</b> {@code ../lively-cities} carries a 150-entry
+ * <p><b>Where the ids come from.</b> {@code ../lively-cities} carries a 128-entry
  * name-to-id table because the region dataset it loads stores animations by name, so
  * the mapping has to exist somewhere; the ids in it were read out of
  * {@code net.runelite.api.gameval.AnimationID} with {@code javap} and pinned by a

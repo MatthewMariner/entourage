@@ -154,6 +154,15 @@ class EntourageScene
 	/**
 	 * Takes the entourage off the screen for good.
 	 *
+	 * <p><b>Only the followers that really came off the screen are forgotten.</b>
+	 * {@link Follower#despawn()} catches its own {@code RuntimeException}, marks the
+	 * follower broken and returns {@code false}, so a client that threw out of
+	 * {@code removeRuneLiteObject} would leave an object registered — and an
+	 * unconditional {@code clear()} here would then drop the last reference to it. That
+	 * is precisely the artefact this method exists to prevent: a figure standing in the
+	 * world that nothing owns and nothing short of a client restart can remove. Keeping
+	 * the reference costs a pointer and leaves a later pass something to try again with.
+	 *
 	 * @return how many followers were actually deactivated. Counted from the client's
 	 * own registered-object list rather than from local bookkeeping, so it is evidence
 	 * rather than an assertion about our own intentions.
@@ -161,10 +170,38 @@ class EntourageScene
 	int shutdown()
 	{
 		int deactivated = despawnAll();
-		followers.clear();
+
+		followers.removeIf(follower -> !stillRegistered(follower));
 		lastResolution = null;
+
+		if (!followers.isEmpty())
+		{
+			log.warn("shutdown could not deactivate {} follower(s) — holding the reference(s) "
+				+ "rather than leaking the object(s)", followers.size());
+		}
+
 		log.debug("shutdown deactivated {} follower(s)", deactivated);
 		return deactivated;
+	}
+
+	/**
+	 * @return whether the client still has this follower's object, treating a throw as
+	 * "yes". A client that will not answer is not one to take at its word, and the two
+	 * mistakes are not symmetrical: a follower still held can be despawned again, one
+	 * already dropped cannot.
+	 */
+	private static boolean stillRegistered(Follower follower)
+	{
+		try
+		{
+			return follower.isActive();
+		}
+		catch (RuntimeException e)
+		{
+			log.warn("{}: threw when asked whether it is still registered",
+				follower.getFigure().label(), e);
+			return true;
+		}
 	}
 
 	/** @return the followers this scene holds, for the tests. Never null. */

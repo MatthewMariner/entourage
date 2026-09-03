@@ -139,6 +139,50 @@ public class EntourageSceneTest
 		assertTrue("and nothing is left holding a lit model", scene.getFollowers().isEmpty());
 	}
 
+	/**
+	 * <b>The leak that lives in the gap between "we tried" and "it worked".</b>
+	 * {@code Follower.despawn()} catches its own {@code RuntimeException}, marks the
+	 * follower broken and returns {@code false} — so a client that threw out of
+	 * {@code removeRuneLiteObject} leaves the object registered, and a teardown that then
+	 * cleared its list unconditionally would drop the last reference to it. Nothing could
+	 * ever remove it after that short of a client restart, which is the one artefact this
+	 * plugin's teardown contract exists to make impossible.
+	 *
+	 * <p>No realistic in-client trigger for the throw is known. That makes it latent, not
+	 * acceptable: the promise is unconditional, so it has to hold against a client that
+	 * misbehaves.
+	 */
+	@Test
+	public void aFollowerThatCouldNotBeDeactivatedIsKeptRatherThanLeaked()
+	{
+		EntourageScene scene = scene();
+		scene.onGameTick();
+		assertTrue(client.registeredCount() > 0);
+
+		client.refusingDeactivation();
+		assertEquals("nothing came off the screen", 0, scene.shutdown());
+
+		assertEquals("the client still has it", EntourageFigure.DEFAULT_ROSTER.size(),
+			client.registeredCount());
+		assertEquals("so something still holds the reference to it",
+			EntourageFigure.DEFAULT_ROSTER.size(), scene.getFollowers().size());
+	}
+
+	/** And a client that will not even say is treated as one that still has it. */
+	@Test
+	public void aFollowerTheClientWillNotAnswerAboutIsKeptToo()
+	{
+		EntourageScene scene = scene();
+		scene.onGameTick();
+		assertTrue(client.registeredCount() > 0);
+
+		client.withThrowingRegistrationChecks();
+		scene.shutdown();
+
+		assertEquals("keeping it costs a pointer; dropping it costs a figure nobody can remove",
+			EntourageFigure.DEFAULT_ROSTER.size(), scene.getFollowers().size());
+	}
+
 	@Test
 	public void shutdownOnASceneThatNeverRanIsHarmless()
 	{

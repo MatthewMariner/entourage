@@ -13,8 +13,9 @@ import net.runelite.api.CollisionData;
  * client allocates the flags array over {@code getSizeX()} then {@code getSizeY()} and
  * every writer in it does {@code flags[x][y] |= ..}, so this is
  * {@code [sceneX][sceneY]} — and a test that got the two the wrong way round would be
- * asserting about the wrong tile. {@code WalkableStepTest} uses a deliberately
- * asymmetric fixture so a transposed reader cannot pass it.
+ * asserting about the wrong tile. <b>The square fixture cannot catch that</b>, because
+ * a 104 by 104 array is its own transpose; {@link FakeWorldView#rectangular} is the one
+ * that can, and {@code WalkableStepTest} runs the transposition cases against it.
  *
  * <p><b>Zero means walkable.</b> That is the client's own convention — a flag is
  * something that blocks — so a freshly built map is open ground everywhere and a test

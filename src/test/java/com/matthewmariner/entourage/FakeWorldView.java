@@ -16,6 +16,25 @@ import net.runelite.api.coords.WorldPoint;
  * tile near the player resolves to a {@code LocalPoint} for the same reason it does in
  * game rather than because the fake is permissive.
  *
+ * <p><b>{@link #rectangular} is the fixture {@link #around} cannot replace.</b> Every
+ * <i>top-level</i> scene the client builds is square — 104 a side, or
+ * {@link Constants#EXTENDED_SCENE_SIZE} on an extended one — and centred, and the
+ * centring arithmetic gives a tile near {@code (3221, 3218)} a base of {@code 3168} on
+ * <i>both</i> axes. On numbers like those a reader cannot tell {@code getBaseX()} from
+ * {@code getBaseY()}, {@code getSizeX()} from {@code getSizeY()}, or
+ * {@code flags[sceneX][sceneY]} from {@code flags[sceneY][sceneX]}; those three
+ * confusions are exactly the mistakes {@link WalkableStep} and {@link FollowerAnchor}
+ * are one keystroke from making, in code that reads the two axes separately on purpose.
+ * So this factory takes two bases and two sizes and insists they differ.
+ *
+ * <p>It is not a shape out of nowhere. The client's world-view constructor takes
+ * {@code sizeX} and {@code sizeY} as separate arguments and a {@code WorldEntity}'s view
+ * really is whatever rectangle that entity is — a boat is longer than it is wide. What
+ * is true is that the top-level view, the only one this plugin will read from today, is
+ * always square. That makes this fixture the shape of a case currently refused rather
+ * than a shape that cannot exist, and either way it is the only place a transposed axis
+ * has to fail.
+ *
  * <p><b>Collision defaults to open ground and is allocated lazily.</b> Zero means
  * walkable in the client's own convention, so a test that does not care about collision
  * gets a scene a follower can cross, and pays nothing for it.
@@ -24,24 +43,30 @@ final class FakeWorldView extends StubWorldView
 {
 	private final int baseX;
 	private final int baseY;
+	private final int sizeX;
+	private final int sizeY;
 	private int plane;
 
 	/** Which world view this is. 0 is {@link WorldView#TOPLEVEL}. */
 	private int id = WorldView.TOPLEVEL;
 
 	/**
-	 * One map per plane, matching the client's own four-slot array, or {@code null}
-	 * while the scene has not produced any.
+	 * One map per plane, matching the client's own four-slot array, or {@code null} for
+	 * a view that will not hand any over. The injected client always hands them over —
+	 * see {@link #withoutCollisionData} — so this models an implementation of the
+	 * interface rather than a moment in the real one's life.
 	 */
 	@Nullable
 	private FakeCollisionData[] collisionMaps;
 
 	private boolean collisionDataAvailable = true;
 
-	private FakeWorldView(int baseX, int baseY, int plane)
+	private FakeWorldView(int baseX, int baseY, int sizeX, int sizeY, int plane)
 	{
 		this.baseX = baseX;
 		this.baseY = baseY;
+		this.sizeX = sizeX;
+		this.sizeY = sizeY;
 		this.plane = plane;
 	}
 
@@ -49,13 +74,44 @@ final class FakeWorldView extends StubWorldView
 	static FakeWorldView around(WorldPoint centre)
 	{
 		return new FakeWorldView(
-			chunkAlignedBase(centre.getX()), chunkAlignedBase(centre.getY()), centre.getPlane());
+			chunkAlignedBase(centre.getX()), chunkAlignedBase(centre.getY()),
+			Constants.SCENE_SIZE, Constants.SCENE_SIZE, centre.getPlane());
+	}
+
+	/**
+	 * A scene whose two axes cannot be mistaken for each other — see the class javadoc.
+	 *
+	 * @param baseX the west edge, which must differ from {@code baseY}
+	 * @param baseY the south edge
+	 * @param sizeX the width in tiles, which must differ from {@code sizeY}
+	 * @param sizeY the height in tiles
+	 * @param plane the plane this scene is on; {@code LocalPoint.fromWorld} refuses a
+	 *              {@code WorldPoint} on any other, so every tile a test uses with this
+	 *              view has to be on it too
+	 * @throws IllegalArgumentException if either pair matches, because a fixture that
+	 * quietly went back to being square would take the whole point of it with it
+	 */
+	static FakeWorldView rectangular(int baseX, int baseY, int sizeX, int sizeY, int plane)
+	{
+		if (baseX == baseY || sizeX == sizeY)
+		{
+			throw new IllegalArgumentException(
+				"this fixture exists to be asymmetric: base " + baseX + "," + baseY
+					+ " size " + sizeX + "," + sizeY);
+		}
+		return new FakeWorldView(baseX, baseY, sizeX, sizeY, plane);
 	}
 
 	private static int chunkAlignedBase(int coordinate)
 	{
 		// The client's own arithmetic: the centre chunk sits six chunks in.
 		return ((coordinate / Constants.CHUNK_SIZE) - 6) * Constants.CHUNK_SIZE;
+	}
+
+	/** @return the world tile at the given scene coordinates in this view */
+	WorldPoint tileAt(int sceneX, int sceneY)
+	{
+		return new WorldPoint(baseX + sceneX, baseY + sceneY, plane);
 	}
 
 	void setPlane(int plane)
@@ -84,13 +140,13 @@ final class FakeWorldView extends StubWorldView
 	@Override
 	public int getSizeX()
 	{
-		return Constants.SCENE_SIZE;
+		return sizeX;
 	}
 
 	@Override
 	public int getSizeY()
 	{
-		return Constants.SCENE_SIZE;
+		return sizeY;
 	}
 
 	@Override
@@ -147,24 +203,42 @@ final class FakeWorldView extends StubWorldView
 	{
 		int sceneX = tile.getX() - baseX;
 		int sceneY = tile.getY() - baseY;
-		if (sceneX < 0 || sceneX >= Constants.SCENE_SIZE || sceneY < 0 || sceneY >= Constants.SCENE_SIZE)
+		if (sceneX < 0 || sceneX >= sizeX || sceneY < 0 || sceneY >= sizeY)
 		{
 			throw new IllegalArgumentException(
-				"tile " + tile + " is outside the fake scene at " + baseX + "," + baseY);
+				"tile " + tile + " is outside the fake scene at " + baseX + "," + baseY
+					+ " sized " + sizeX + "x" + sizeY);
 		}
 
 		maps()[tile.getPlane()].set(sceneX, sceneY, mask);
 		return this;
 	}
 
-	/** The client has not built any collision maps yet. */
+	/**
+	 * A view that hands back no collision maps at all.
+	 *
+	 * <p><b>Not a state the injected client is ever in.</b> Its {@code gc[]} field has
+	 * exactly one assignment — {@code new gc[4]} in the world view's constructor — so
+	 * {@code getCollisionMaps()} never returns {@code null} there. {@code WorldView} is
+	 * an interface this plugin does not implement, though, and the raw API's answer for
+	 * this case is {@code false}, i.e. "blocked", which is the wrong answer to act on.
+	 * The branch exists so that the wrong answer cannot reach a follower; this is what
+	 * proves the branch is wired up.
+	 */
 	FakeWorldView withoutCollisionData()
 	{
 		collisionDataAvailable = false;
 		return this;
 	}
 
-	/** The array exists but this plane's map does not — the client's own lazy state. */
+	/**
+	 * The array exists but this plane's map does not.
+	 *
+	 * <p>Also not the injected client's state — the same constructor fills all four
+	 * slots in a loop before it returns — and here the raw API's answer is an NPE out of
+	 * a game-tick handler rather than a wrong verdict. Same reasoning: the check is
+	 * cheap, the interface is not ours, and this is what keeps it honest.
+	 */
 	FakeWorldView withoutCollisionMapFor(int planeToDrop)
 	{
 		maps()[planeToDrop] = null;
@@ -179,7 +253,9 @@ final class FakeWorldView extends StubWorldView
 			collisionMaps = new FakeCollisionData[4];
 			for (int i = 0; i < collisionMaps.length; i++)
 			{
-				collisionMaps[i] = new FakeCollisionData(Constants.SCENE_SIZE, Constants.SCENE_SIZE);
+				// Sized off this view's own rectangle, the way the client allocates it,
+				// so a rectangular scene really does have a rectangular flags array.
+				collisionMaps[i] = new FakeCollisionData(sizeX, sizeY);
 			}
 		}
 		return collisionMaps;

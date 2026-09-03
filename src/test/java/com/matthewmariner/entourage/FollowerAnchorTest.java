@@ -16,6 +16,17 @@ public class FollowerAnchorTest
 {
 	private static final WorldPoint STANDING = new WorldPoint(3221, 3218, 0);
 
+	/** See {@link FakeWorldView#rectangular} for why a scene no client builds earns its place. */
+	private static final int RECT_BASE_X = 3200;
+	private static final int RECT_BASE_Y = 3072;
+	private static final int RECT_SIZE_X = 104;
+	private static final int RECT_SIZE_Y = 72;
+
+	private static FakeWorldView rectangular()
+	{
+		return FakeWorldView.rectangular(RECT_BASE_X, RECT_BASE_Y, RECT_SIZE_X, RECT_SIZE_Y, 0);
+	}
+
 	@Test
 	public void aStationaryPlayerAnchorsOnTheTileHeIsStandingOn()
 	{
@@ -125,6 +136,49 @@ public class FollowerAnchorTest
 			FollowerAnchor.of(FakePlayer.outsideTheScene(view, STANDING), view));
 	}
 
+	// --- The two axes are not interchangeable --------------------------------
+
+	/**
+	 * Every test above runs on {@link FakeWorldView#around}, which centres a square
+	 * scene — and the client's centring arithmetic gives a tile near {@code (3221, 3218)}
+	 * a base of 3168 on <i>both</i> axes. On that fixture {@code getBaseX()} and
+	 * {@code getBaseY()} are the same number, so a tile built out of them the wrong way
+	 * round comes out identical and nothing here could tell. This one has bases that
+	 * differ.
+	 */
+	@Test
+	public void theTileTakesEachCoordinateFromItsOwnBase()
+	{
+		FakeWorldView view = rectangular();
+		FollowerAnchor anchor = FollowerAnchor.of(FakePlayer.atSceneTile(view, 90, 20), view);
+
+		assertTrue(anchor.isResolved());
+		assertEquals(new WorldPoint(RECT_BASE_X + 90, RECT_BASE_Y + 20, 0), anchor.getTile());
+	}
+
+	/**
+	 * And the same for the bounds check. A square scene cannot tell {@code getSizeX()}
+	 * from {@code getSizeY()}; a rectangular one refuses in one direction and resolves in
+	 * the other, so both halves of the comparison have to be on their own axis.
+	 */
+	@Test
+	public void eachSceneCoordinateIsBoundedByItsOwnAxis()
+	{
+		FakeWorldView view = rectangular();
+
+		assertTrue("a scene x of 90 is inside the long axis",
+			FollowerAnchor.of(FakePlayer.atSceneTile(view, 90, 20), view).isResolved());
+		assertUnresolved("a scene y of 90, off the end of the short axis,",
+			FollowerAnchor.Resolution.OUTSIDE_SCENE,
+			FollowerAnchor.of(FakePlayer.atSceneTile(view, 20, 90), view));
+
+		assertTrue("the last row still counts as inside it",
+			FollowerAnchor.of(FakePlayer.atSceneTile(view, 20, RECT_SIZE_Y - 1), view).isResolved());
+		assertUnresolved("the row past the last one",
+			FollowerAnchor.Resolution.OUTSIDE_SCENE,
+			FollowerAnchor.of(FakePlayer.atSceneTile(view, 20, RECT_SIZE_Y), view));
+	}
+
 	@Test
 	public void anUnresolvedAnchorCarriesNoTile()
 	{
@@ -142,8 +196,14 @@ public class FollowerAnchorTest
 
 	private static void assertUnresolved(FollowerAnchor.Resolution expected, FollowerAnchor anchor)
 	{
-		assertFalse("must not resolve", anchor.isResolved());
-		assertEquals(expected, anchor.getResolution());
+		assertUnresolved("this anchor", expected, anchor);
+	}
+
+	private static void assertUnresolved(
+		String what, FollowerAnchor.Resolution expected, FollowerAnchor anchor)
+	{
+		assertFalse(what + " must not resolve", anchor.isResolved());
+		assertEquals(what, expected, anchor.getResolution());
 		assertNull("an unresolved anchor must not hand out a tile", anchor.getTile());
 	}
 }
