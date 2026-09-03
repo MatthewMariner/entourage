@@ -1,8 +1,14 @@
 # Entourage
 
-A small group of cosmetic figures that walk with you and hold a pose when you
-stop. Client-side only: nobody else's client draws them, no packet is sent, and
-nothing about any other player is read.
+A cosmetic figure that walks with you and holds a pose when you stop.
+Client-side only: nobody else's client draws it, no packet is sent, and nothing
+about any other player is read.
+
+**One figure, deliberately** — `EntourageFigure.DEFAULT_ROSTER` is
+`singletonList(ROGUE)` and extending it is one line. The plugin is named for what
+it grows into; every line a reader meets first now says what it currently is,
+including `runelite-plugin.properties`, which is the one a hub visitor sees
+before anything else here and which promised a group until a review noticed.
 
 Built against RuneLite client **1.12.38**.
 
@@ -95,8 +101,13 @@ doorframe. Reimplementing that from `CollisionDataFlag` would have been three of
 those four rules and a bug.
 
 What `WalkableStep` adds is the failure handling, which the API has none of. All
-six rows below are what the raw API really does — verified by disassembly, and
-three of them pinned by tests that assert it. **Three of the six can happen to a
+six rows below are what the raw API really does, verified by disassembly; **two
+of the rows are additionally pinned by three tests** that call
+`canTravelInDirection` for real and assert it still throws, so the wrapper cannot
+quietly become ceremony if the API is fixed upstream. (Two rows, three tests: the
+off-scene row fails differently depending on whether it is the tile being left or
+the tile being entered that is off the scene, and both halves are covered.)
+Separately — and this is a different three — **three of the six can happen to a
 follower and three cannot**, and saying which is which is the difference between
 a wrapper that is justified and one that is decorated:
 
@@ -274,14 +285,22 @@ the square fixture alone.
 Nothing below can be settled without the cache, and none of it is guessed at in
 the code — each is stated as an open question where it lives.
 
-1. **Does `NpcID.ROGUE` (526) dress a human-rigged body?** The argument for it is
-   second-hand but not thin: `../lively-cities` already dresses a figure from 526
-   and animates it with a framemap-0 human pose, live on the Plugin Hub, and
-   `HUMAN_READY`/`HUMAN_WALK_F` are on that same framemap. If it turns out wrong,
-   `EntourageFigure.FARMER` (`NpcID.FARMER1`) is the fallback: `../lively-cities`
-   ships it with this *exact* stand/walk pair on a figure that wanders, so that
-   combination is field-proven rather than argued. Swapping is one entry in
-   `DEFAULT_ROSTER`.
+1. **Does `NpcID.ROGUE` (526) *walk* on a human rig?** This used to be phrased as
+   one question and it is really two, and the evidence covers only the first
+   half. `../lively-cities` uses NPC 526 exactly once, on `Sludgellama` — and
+   that record is a **`StationaryCitizen` with no `moveAnimation` at all**, posed
+   with `NervousIdle`. So being live on the Plugin Hub proves that 526 resolves
+   to a composition and that a framemap-0 human *pose* sits on it correctly. It
+   is not evidence about a *walk* on 526, because nothing over there has ever
+   walked one. That the framemaps line up is an inference from the pose, not an
+   observation of the walk, and the sentence here used to read as though it were
+   the latter.
+
+   If it turns out wrong, `EntourageFigure.FARMER` (`NpcID.FARMER1`) is the
+   fallback, and that one really is field-proven rather than argued:
+   `../lively-cities` ships `Rufus`, a `WanderingCitizen` on 3114, with
+   `HumanIdle`/`HumanWalk` — this *exact* stand/walk pair, on a figure that
+   actually moves. Swapping is one entry in `DEFAULT_ROSTER`.
 2. **Does the walk read as a walk?** Frame pacing, and whether the stride matches
    the tile crossing at one tile per game tick.
 3. **How far ahead does the server tile actually run?** That

@@ -23,17 +23,25 @@ import net.runelite.api.gameval.NpcID;
  *
  * <p><b>What a live client still has to confirm.</b> That an NPC's composition
  * resolves, and that its models sit on the framemap the animations below are rigged
- * to, cannot be checked without the cache. The argument for {@link #ROGUE} is
- * second-hand but not thin: {@code ../lively-cities} already dresses a figure from
- * {@code NpcID.ROGUE} and animates it with {@code NervousIdle}
- * ({@code AnimationID.NERVOUS_IDLE}, a framemap-0 human pose), and it is live on the
- * Plugin Hub doing so — so 526 is a human-rigged composition, and
- * {@link EntourageAnimation#HUMAN_STAND} and {@link EntourageAnimation#HUMAN_WALK}
- * are on that same framemap. {@link #FARMER} is the fallback if that turns out to be
- * wrong in the client: {@code ../lively-cities} ships {@code NpcID.FARMER1} with
+ * to, cannot be checked without the cache.
+ *
+ * <p><b>The evidence for {@link #ROGUE} is real but narrower than it reads.</b>
+ * {@code ../lively-cities} uses NPC 526 exactly once, on {@code Sludgellama}, and
+ * that record is a {@code StationaryCitizen} with <b>no {@code moveAnimation} at
+ * all</b>, posed with {@code NervousIdle} ({@code AnimationID.NERVOUS_IDLE}, a
+ * framemap-0 human pose). Being live on the Plugin Hub therefore establishes two
+ * things and not a third: 526 resolves to a composition, and a framemap-0 human pose
+ * sits on it correctly. It says nothing about a <em>walk</em> on 526, because
+ * nothing over there has ever walked one. That {@link EntourageAnimation#HUMAN_STAND}
+ * and {@link EntourageAnimation#HUMAN_WALK} share that framemap is an inference from
+ * the pose rather than an observation, and this javadoc used to state it as though
+ * the two were the same strength.
+ *
+ * <p>{@link #FARMER} is the fallback if that turns out wrong in the client, and it
+ * is the one that is genuinely field-proven: {@code ../lively-cities} ships
+ * {@code Rufus}, a {@code WanderingCitizen} on {@code NpcID.FARMER1}, with
  * {@code HumanIdle}/{@code HumanWalk} — the exact pair below — on a figure that
- * wanders, so that combination is field-proven rather than argued. Swapping is one
- * entry in {@link #DEFAULT_ROSTER}.
+ * actually moves. Swapping is one entry in {@link #DEFAULT_ROSTER}.
  */
 enum EntourageFigure
 {

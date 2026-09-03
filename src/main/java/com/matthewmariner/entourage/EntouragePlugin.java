@@ -15,7 +15,13 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 
 /**
- * A small group of cosmetic figures that walk with you and hold a pose when you stop.
+ * A cosmetic figure that walks with you and holds a pose when you stop.
+ *
+ * <p>Singular on purpose: {@link EntourageFigure#DEFAULT_ROSTER} ships one, and the
+ * plugin is named for what it grows into rather than for what it currently spawns.
+ * The user-facing strings — {@code @PluginDescriptor}'s {@code description} below and
+ * {@code runelite-plugin.properties} — say one for the same reason, and they said
+ * "a small group" in two slightly different wordings until a review noticed.
  *
  * <p>Client-side only. Nothing here is visible to anybody else, no packet is sent, and
  * no information about any other player is read.
@@ -55,7 +61,11 @@ import net.runelite.client.plugins.PluginDescriptor;
 @Slf4j
 @PluginDescriptor(
 	name = "Entourage",
-	description = "Cosmetic figures that walk with you and hold a pose when you stop",
+	// Singular, and byte-identical to runelite-plugin.properties. This is the
+	// in-client panel's copy of a string the hub listing also carries; the two
+	// used to differ from each other, and both used to promise a group while
+	// EntourageFigure.DEFAULT_ROSTER shipped one figure. Change them together.
+	description = "A cosmetic figure that walks with you and holds a pose when you stop",
 	tags = {"cosmetic", "follower", "entourage", "immersion", "npc"}
 )
 public class EntouragePlugin extends Plugin

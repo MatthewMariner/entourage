@@ -3,18 +3,42 @@ package com.matthewmariner.entourage;
 /**
  * Which way a figure faces when it takes one of the eight steps it can take.
  *
- * <p>The convention is the client's own, taken from {@code Angle.getNearestDirection()},
- * which buckets {@code (angle >> 9) & 3} as 0 = south, 1 = west, 2 = north, 3 = east
- * — i.e. the angle rises as the facing turns clockwise from south, through a full
- * turn of {@link #TURN_UNITS}. {@code RuneLiteObjectController.setOrientation(int)}
- * takes a value in that space.
+ * <p>The convention is the client's own, taken from
+ * {@code Angle.getNearestDirection()}: 0 = south, 1 = west, 2 = north, 3 = east —
+ * i.e. the angle rises as the facing turns clockwise from south, through a full turn
+ * of {@link #TURN_UNITS}. {@code RuneLiteObjectController.setOrientation(int)} takes
+ * a value in that space.
+ *
+ * <p><b>The method, disassembled, is three steps and not one.</b> An earlier version
+ * of this javadoc quoted it as {@code (angle >> 9) & 3}, which is the bucketing
+ * without the rounding — the part that makes it a <em>nearest</em>-direction:
+ * <pre>
+ *   int d = angle &gt;&gt;&gt; 9;              // unsigned, not &gt;&gt;
+ *   if ((angle &amp; 256) != 0) d++;       // round to the nearer of the two
+ *   switch (d &amp; 3) { 0 SOUTH, 1 WEST, 2 NORTH, 3 EAST }
+ * </pre>
+ * At the four cardinals (0, 512, 1024, 1536) bit 256 is clear, the increment never
+ * fires, and the two forms agree — which is why the mapping above was right anyway,
+ * and why nothing here behaves differently. They disagree at exactly the four
+ * diagonals this table ships: 256 is WEST under the real method and SOUTH under the
+ * truncating one, and 768, 1280 and 1792 are each off by one bucket the same way.
+ * Nothing in this plugin calls {@code getNearestDirection}, so the cost of the wrong
+ * quotation was to anybody checking the table against it.
  *
  * <p>A lookup table rather than {@code atan2(-dx, -dy)} because there are only eight
- * answers, every one of them exact, and a table cannot be a rounding bug. The same
- * table appears as {@code CitizenWalk.STEP_ORIENTATION} in {@code ../lively-cities};
- * it is private there, so this is a re-derivation rather than a shared class, and
- * {@code StepOrientationTest} re-checks every entry against the four cardinals
- * instead of against the other copy.
+ * answers, every one of them exact, and a table cannot be a rounding bug.
+ *
+ * <p><b>Where the table came from, accurately.</b> The same array is
+ * {@code CitizenWalk.STEP_ORIENTATION} in {@code ../lively-cities}, and this is a
+ * copy of it, not a re-derivation: the literal is identical down to all three
+ * trailing comments, with only the field name and {@code -1} spelled as
+ * {@link #NOT_MOVING} to tell them apart. It is private there, which is why there
+ * are two of it rather than one. The defence against the copy being wrong is not the
+ * copying, it is {@code StepOrientationTest}, which checks every entry against the
+ * geometry — the four cardinals from the convention above, and each diagonal against
+ * the two cardinals it sits between — rather than against the other copy. That test
+ * would fail if both copies were wrong together, which is the only property worth
+ * having here.
  *
  * <p>Nothing here touches the client, so the whole of it is testable with no game
  * running.

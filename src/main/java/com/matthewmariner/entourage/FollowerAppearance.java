@@ -12,7 +12,10 @@ import net.runelite.api.NPCComposition;
  * <p><b>Why not the player's own outfit.</b> The obvious idea for this plugin is an
  * entourage of yous, and it is <b>unconfirmed</b> rather than merely unimplemented.
  * {@code PlayerComposition} exposes {@code getEquipmentIds()} and
- * {@code getBodyPartColours()}, but there is no counterpart to
+ * {@code getColors()} — the second of those was written here as
+ * {@code getBodyPartColours()}, which is not a method on that interface and never
+ * was; {@code javap} gives {@code int[] getColors()}, in the same list that has the
+ * correct {@code getEquipmentIds()} next to it. But there is no counterpart to
  * {@code NPCComposition.getModels()} — no one call that hands back a buildable
  * {@code int[]} of model ids — and turning kit and equipment ids into model ids means
  * reproducing the client's own item-to-model resolution, which this plugin cannot
