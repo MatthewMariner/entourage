@@ -1,0 +1,671 @@
+package com.matthewmariner.entourage;
+
+import java.util.ArrayList;
+import java.util.List;
+import javax.annotation.Nullable;
+import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.AnimationController;
+import net.runelite.api.Client;
+import net.runelite.api.Model;
+import net.runelite.api.ModelData;
+import net.runelite.api.RuneLiteObject;
+import net.runelite.api.WorldView;
+import net.runelite.api.coords.LocalPoint;
+import net.runelite.api.coords.WorldPoint;
+
+/**
+ * One {@link EntourageFigure} bound to one {@link RuneLiteObject}.
+ *
+ * <p><b>Every method here must run on the client thread.</b> All of it reaches into
+ * live client state: {@code loadModelData} and {@code mergeModels} read the model
+ * cache, {@code light} allocates against it, {@code setActive} adds to and removes
+ * from the client's registered-object list, and
+ * {@code RuneLiteObject.setLocation(LocalPoint, int)} runs
+ * {@code Perspective.getTileHeight(client, ..)} against the live scene to work out
+ * {@code z}. That last one is the {@link RuneLiteObject} override — the base
+ * {@code RuneLiteObjectController.setLocation} really does nothing but
+ * {@code setX}/{@code setY}/{@code setWorldView}/{@code setLevel}, so reading only
+ * the base class makes the call look thread-safe when it is not. The client does the
+ * height fix-up; this plugin never writes {@code z}.
+ *
+ * <p><b>Movement is split across two clocks, and which half does what is not an
+ * implementation detail:</b>
+ * <ul>
+ *   <li>{@link #advanceTick} runs once per game tick. It steps the walk at most one
+ *       tile, faces the follower the way it is going, and switches between the idle
+ *       and walk animations.</li>
+ *   <li>{@link #advanceFrame} runs once per rendered frame. It slides the drawn
+ *       position between the tile the follower left and the tile it is heading for.
+ *       <b>Nothing else per frame</b> — in particular not
+ *       {@code RuneLiteObject.tick(..)}, which the client already calls once per frame
+ *       for every registered object and which is what advances the animation. A
+ *       second caller runs every animation at double speed; the API javadoc says as
+ *       much and {@code FollowerTest} pins the count at zero.</li>
+ * </ul>
+ *
+ * <p><b>Both animation controllers are built once and kept.</b> An
+ * {@code AnimationController} <i>is</i> the animation's playback position:
+ * constructing one, or calling {@code setAnimation} on one, resets its frame to zero.
+ * Re-creating a controller on every idle-to-walk switch is what turns a walk cycle
+ * into a stutter — the client advances the frames between game ticks and something
+ * then throws that progress away. Holding both means a follower that stops and starts
+ * resumes its stride instead of restarting it.
+ *
+ * <p><b>Two kinds of failure, kept apart, because caching the wrong one loses the
+ * follower for the whole session:</b>
+ * <ul>
+ *   <li><b>Structural</b> — the client refuses to create an object, the merge returns
+ *       nothing, lighting returns nothing, {@code setActive(true)} does not take, or
+ *       anything throws. Nothing about the next tick will be different, so the
+ *       follower is marked {@link #broken} and never retried. That is what stops a bad
+ *       model producing one warning per game tick forever.</li>
+ *   <li><b>Transient</b> — {@code loadModelData} returned null, the composition would
+ *       not resolve, or {@code loadAnimation} returned null. On a cold cache all three
+ *       are routine and say nothing about the id, so none is latched; each is retried,
+ *       at most {@link #MAX_ATTEMPTS} times per {@link #onSceneEntered()} and spaced by
+ *       {@link #RETRY_BACKOFF_TICKS}.</li>
+ * </ul>
+ * The difference is which way the follower fails while it waits. A missing model means
+ * no figure at all, so the spawn is deferred. A missing animation means a figure in the
+ * right place holding still, which is better than an absent one — so it spawns, and the
+ * animation is picked up whenever the cache produces it.
+ */
+@Slf4j
+final class Follower
+{
+	/**
+	 * How many times a cache miss is retried before this follower gives up until the
+	 * next scene load. Three, spaced by {@link #RETRY_BACKOFF_TICKS}, so a genuinely
+	 * absent id costs three attempts and one warning per scene load rather than one
+	 * per tick.
+	 */
+	static final int MAX_ATTEMPTS = 3;
+
+	/**
+	 * Game ticks between retries. The cache this is waiting on warms up over seconds,
+	 * not ticks: three attempts on three consecutive ticks would spend the whole
+	 * budget inside two seconds of a cold login and then leave the follower waiting for
+	 * a border crossing. At 600ms a tick this spreads them over roughly fifteen
+	 * seconds.
+	 */
+	static final int RETRY_BACKOFF_TICKS = 25;
+
+	private final Client client;
+	private final EntourageFigure figure;
+	private final FollowerWalk walk;
+
+	private RuneLiteObject object;
+	private Model model;
+	private boolean broken;
+
+	@Nullable
+	private FollowerAppearance appearance;
+
+	/**
+	 * The two controllers, built on first use and then kept — see the class javadoc.
+	 *
+	 * <p><b>Only ever assigned a controller that actually has an animation.</b>
+	 * {@link #looping} returns null on a failed load and these stay null, so the next
+	 * call tries again. Caching a controller whose animation is null is caching a
+	 * permanently inert object: its {@code tick}, {@code loop} and
+	 * {@code getPackedFrame} all return immediately, and the figure would draw its base
+	 * model unanimated for the rest of the session on one cold-cache miss.
+	 */
+	private AnimationController idleController;
+	private AnimationController walkController;
+
+	/** The controller currently handed to the object, for the identity compare. */
+	private AnimationController installed;
+
+	/**
+	 * True once the object sits at a position that cannot change again before the next
+	 * game tick — the follower has stopped and the frame pass has already placed it.
+	 *
+	 * <p>Cleared by every spawn, every despawn and every tick, so the follower is
+	 * placed at least once per game tick and is skipped only while it is genuinely
+	 * standing still. {@code setLocation} is not free: it runs
+	 * {@code Perspective.getTileHeight} against the live scene.
+	 */
+	private boolean positionSettled;
+
+	private int attempts;
+	private int ticksSinceAttempt;
+
+	Follower(Client client, EntourageFigure figure, WorldPoint start)
+	{
+		this.client = client;
+		this.figure = figure;
+		this.walk = new FollowerWalk(start);
+	}
+
+	EntourageFigure getFigure()
+	{
+		return figure;
+	}
+
+	FollowerWalk getWalk()
+	{
+		return walk;
+	}
+
+	boolean isBroken()
+	{
+		return broken;
+	}
+
+	/**
+	 * Latches this follower out of every later pass, without a log line — the caller has
+	 * more context and does the logging.
+	 *
+	 * <p>For {@link EntourageScene} to use when a throw came from outside {@link #spawn}
+	 * and {@link #despawn}, which already latch their own. Without it, a follower that
+	 * throws on every tick is a warning on every tick, forever.
+	 */
+	void markBroken()
+	{
+		broken = true;
+	}
+
+	/**
+	 * @return whether the client currently has this object registered. Asks the client
+	 * rather than trusting local bookkeeping, so teardown evidence is real.
+	 */
+	boolean isActive()
+	{
+		return object != null && object.isActive();
+	}
+
+	/**
+	 * Hands back the retry budget. Called when the scene is rebuilt: a scene load is
+	 * the right granularity at which to re-test a cold cache.
+	 */
+	void onSceneEntered()
+	{
+		attempts = 0;
+		ticksSinceAttempt = 0;
+	}
+
+	/**
+	 * Builds (once) and activates the object at the follower's current tile.
+	 *
+	 * @return true if the object is active when this returns
+	 */
+	private boolean spawn(WorldView worldView)
+	{
+		try
+		{
+			return trySpawn(worldView);
+		}
+		catch (RuntimeException e)
+		{
+			// This runs from an EventBus handler. Letting it out abandons the rest of
+			// the pass — including anything that was supposed to deactivate — and does
+			// it again next tick, because nothing would have marked the offender.
+			broken = true;
+			log.warn("{}: threw while spawning, not retrying", figure.label(), e);
+			return false;
+		}
+	}
+
+	/**
+	 * Deactivates the object if it is active.
+	 *
+	 * @return true if this call actually deactivated something
+	 */
+	boolean despawn()
+	{
+		try
+		{
+			if (!isActive())
+			{
+				return false;
+			}
+
+			object.setActive(false);
+			positionSettled = false;
+			log.debug("despawned {}", figure.label());
+			return true;
+		}
+		catch (RuntimeException e)
+		{
+			// Same reasoning as spawn(), and the stakes are higher: this runs from the
+			// teardown loop that must reach every other follower.
+			broken = true;
+			log.warn("{}: threw while despawning", figure.label(), e);
+			return false;
+		}
+	}
+
+	/**
+	 * One game tick of being a follower: arrive if not here yet, otherwise step the
+	 * walk, face the direction of travel, and switch animations.
+	 *
+	 * <p><b>A follower that is not active forms up on the anchor rather than resuming
+	 * the tile it last held.</b> The only reasons it is inactive are that it has never
+	 * spawned, that the scene it was standing in has been thrown away, or that its
+	 * model is still coming out of a cold cache — and in all three the remembered tile
+	 * either means nothing or means somewhere else now.
+	 *
+	 * <p>Re-selecting the controller every tick is also what retries an animation that
+	 * missed: {@link #looping} is asked again, subject to the retry budget, until it
+	 * hands back something real. There is no separate retry path, because a second one
+	 * is a second definition of when a follower is allowed to touch the cache.
+	 *
+	 * @param anchor    the tile to form up on
+	 * @param worldView the view the follower is walking in
+	 */
+	void onGameTick(WorldPoint anchor, WorldView worldView)
+	{
+		if (broken)
+		{
+			return;
+		}
+
+		// Ages the retry backoff whether or not anything else happens below — a
+		// follower waiting on a cold model cache is inactive, and a counter that only
+		// advanced for active followers would never let it try again.
+		ticksSinceAttempt++;
+
+		if (!isActive())
+		{
+			walk.placeAt(anchor);
+			spawn(worldView);
+			return;
+		}
+
+		walk.tick(anchor, worldView);
+
+		// select() compares controllers by identity, so a follower mid-walk re-selects
+		// the one it already has and the object is left alone — which is what keeps the
+		// animation's frame counter intact.
+		select(walk.isMoving() ? walkControllerOrNull() : idleControllerOrNull());
+
+		object.setOrientation(walk.getOrientation());
+
+		// This tick may have moved the follower — including onto the tile it was
+		// heading for, which is where it stops — so the frame pass has to take at least
+		// one look before it may skip it again.
+		positionSettled = false;
+	}
+
+	/**
+	 * One frame of visual interpolation. This is the part that has to happen per frame
+	 * rather than per game tick: without it a follower jumps a whole tile every 600ms.
+	 *
+	 * @param fraction how far through the current game tick this frame is, 0..1
+	 */
+	void advanceFrame(WorldView worldView, float fraction)
+	{
+		if (broken || !isActive() || positionSettled)
+		{
+			return;
+		}
+
+		LocalPoint location = walk.localPoint(worldView, fraction);
+		if (location == null)
+		{
+			// Walking to a tile the client has not loaded. Leaving the object where it
+			// is beats moving it somewhere that does not mean anything.
+			return;
+		}
+
+		object.setLocation(location, walk.currentTile().getPlane());
+		positionSettled = !walk.isMoving();
+	}
+
+	/** @return the controller driving the model, or {@code null} for a static one */
+	@Nullable
+	AnimationController getInstalledController()
+	{
+		return installed;
+	}
+
+	/**
+	 * @return the appearance this follower is wearing, or {@code null} if it has not
+	 * resolved one yet. For the tests: "it used the NPC's models" and "it is still
+	 * waiting" are two outcomes that otherwise look identical from outside.
+	 */
+	@Nullable
+	FollowerAppearance getAppearance()
+	{
+		return appearance;
+	}
+
+	// Two narrow read-only accessors for what the client is about to draw, rather than
+	// handing out the RuneLiteObject itself. This class is the only writer of that
+	// object's state, and a caller that could reach setActive or setLocation would be a
+	// second definition of the lifecycle and of how fast a follower walks. They read the
+	// object rather than the walk on purpose: the walk holds the tile, the object holds
+	// the position the frame pass last put it at, and the difference between those two is
+	// the whole of the interpolation.
+
+	/**
+	 * @return the local position the object currently holds, or {@code null} if it has
+	 * never been placed. {@code RuneLiteObjectController.getLocation()} builds this from
+	 * the x/y it was last given, so it is the frame pass's own answer rather than a
+	 * second computation of it.
+	 */
+	@Nullable
+	LocalPoint getRenderLocation()
+	{
+		return object == null ? null : object.getLocation();
+	}
+
+	/**
+	 * @return the orientation the object is drawn at, in 0..2047. Falls back to the
+	 * walk's own answer when there is no object yet.
+	 */
+	int getRenderOrientation()
+	{
+		return object == null ? walk.getOrientation() : object.getOrientation();
+	}
+
+	private boolean trySpawn(WorldView worldView)
+	{
+		if (broken)
+		{
+			return false;
+		}
+
+		if (isActive())
+		{
+			return true;
+		}
+
+		LocalPoint location = walk.localPoint(worldView, 1f);
+		if (location == null)
+		{
+			// Outside the loaded scene. Not an error.
+			return false;
+		}
+
+		if (object == null)
+		{
+			object = client.createRuneLiteObject();
+			if (object == null)
+			{
+				log.warn("{}: client refused to create a RuneLiteObject", figure.label());
+				broken = true;
+				return false;
+			}
+		}
+
+		if (model == null)
+		{
+			List<ModelData> parts = loadParts();
+			if (parts == null)
+			{
+				// Transient: nothing cached, nothing latched, try again later.
+				return false;
+			}
+
+			model = assemble(parts);
+			if (model == null)
+			{
+				broken = true;
+				return false;
+			}
+
+			object.setModel(model);
+			select(idleControllerOrNull());
+		}
+
+		object.setOrientation(walk.getOrientation());
+		object.setLocation(location, walk.currentTile().getPlane());
+		object.setActive(true);
+
+		if (!object.isActive())
+		{
+			// The client took the call and still does not have the object. That is not
+			// going to change next tick, and leaving it unlatched is one warning per
+			// tick forever.
+			log.warn("{}: setActive(true) did not take, not retrying", figure.label());
+			broken = true;
+			return false;
+		}
+
+		positionSettled = false;
+		log.debug("spawned {} at {}", figure.label(), walk.currentTile());
+		return true;
+	}
+
+	/**
+	 * Hands the object a controller, but only when it is not the one it already has.
+	 * The identity compare is the whole point — see the class javadoc.
+	 */
+	private void select(@Nullable AnimationController controller)
+	{
+		if (controller == installed)
+		{
+			return;
+		}
+
+		installed = controller;
+		object.setAnimationController(controller);
+	}
+
+	@Nullable
+	private AnimationController idleControllerOrNull()
+	{
+		if (idleController == null)
+		{
+			idleController = looping(figure.getIdleAnimation());
+		}
+		return idleController;
+	}
+
+	@Nullable
+	private AnimationController walkControllerOrNull()
+	{
+		if (walkController == null)
+		{
+			walkController = looping(figure.getWalkAnimation());
+		}
+
+		// A figure that could not load its walk keeps standing rather than freezing
+		// into a static model mid-step. Still wrong-looking, but wrong in the way that
+		// says "this figure is idle" instead of "this figure is a prop".
+		return walkController == null ? idleControllerOrNull() : walkController;
+	}
+
+	/**
+	 * Builds a looping controller, or returns {@code null} without caching anything if
+	 * the client would not give us the animation.
+	 *
+	 * <p>Not {@code setAnimation(..)}: that is sugar for exactly this, and the looping
+	 * half of the old API ({@code setShouldLoop}) is deprecated. An
+	 * {@code AnimationController} defaults to {@code AnimationController::loop}, but
+	 * say so explicitly so a future default change cannot silently make every follower
+	 * freeze on its last frame.
+	 *
+	 * <p><b>The null check is the whole point.</b> The constructor swallows a failed
+	 * load — it calls {@code client.loadAnimation(id)} and hands the result, null or
+	 * not, straight to {@code setAnimation} — so the only way to tell is to ask the
+	 * controller what animation it ended up with.
+	 */
+	@Nullable
+	private AnimationController looping(EntourageAnimation animation)
+	{
+		if (!attemptAllowed())
+		{
+			return null;
+		}
+
+		AnimationController controller = new AnimationController(client, animation.getId());
+		if (controller.getAnimation() == null)
+		{
+			spendAttempt();
+			if (attempts == 1)
+			{
+				log.warn("{}: animation {} (id {}) did not load — drawing it static for now; "
+						+ "a cold cache is the usual cause, so it will be retried up to {} time(s) "
+						+ "per scene load",
+					figure.label(), animation, animation.getId(), MAX_ATTEMPTS);
+			}
+			return null;
+		}
+
+		controller.setOnFinished(AnimationController::loop);
+		return controller;
+	}
+
+	/**
+	 * Loads every model this follower is made of.
+	 *
+	 * @return all of the requested parts, or {@code null} if even one did not load —
+	 * never a partial list. A partial resolve is how a figure ends up with no head or
+	 * no boots, and since the model is cached it would stay that way for the session.
+	 */
+	@Nullable
+	private List<ModelData> loadParts()
+	{
+		if (!attemptAllowed())
+		{
+			return null;
+		}
+
+		int[] modelIds = modelIdsToBuild();
+		if (modelIds == null)
+		{
+			return null;
+		}
+
+		List<ModelData> parts = new ArrayList<>(modelIds.length);
+		StringBuilder missing = new StringBuilder();
+
+		for (int modelId : modelIds)
+		{
+			ModelData part = client.loadModelData(modelId);
+			if (part == null)
+			{
+				if (missing.length() > 0)
+				{
+					missing.append(", ");
+				}
+				missing.append(modelId);
+				continue;
+			}
+			parts.add(part);
+		}
+
+		if (parts.size() == modelIds.length)
+		{
+			return parts;
+		}
+
+		spendAttempt();
+
+		// One line for the follower, not one per id: a cold cache misses whole
+		// handfuls at once.
+		if (attempts == 1)
+		{
+			log.warn("{}: only {} of {} model part(s) loaded, missing id(s) {} — not spawning; "
+					+ "a cold cache is the usual cause, so it will be retried up to {} time(s) "
+					+ "per scene load",
+				figure.label(), parts.size(), modelIds.length, missing, MAX_ATTEMPTS);
+		}
+
+		return null;
+	}
+
+	/**
+	 * @return the model ids to build, or {@code null} if the NPC composition would not
+	 * resolve. Never falls back to anything: a different body in the right place is
+	 * worse than no body.
+	 */
+	@Nullable
+	private int[] modelIdsToBuild()
+	{
+		if (appearance != null)
+		{
+			return appearance.getModelIds();
+		}
+
+		FollowerAppearance resolved = FollowerAppearance.resolve(client, figure.getNpcId(), figure.label());
+		if (resolved == null)
+		{
+			spendAttempt();
+			if (attempts == 1)
+			{
+				log.warn("{}: npc {} would not resolve to an appearance — not spawning; a cold "
+						+ "cache is one cause and a renumbered NPC id is the other, so it will be "
+						+ "retried up to {} time(s) per scene load",
+					figure.label(), figure.getNpcId(), MAX_ATTEMPTS);
+			}
+			return null;
+		}
+
+		appearance = resolved;
+		log.debug("{}: dressed from '{}' — {} model(s), {} recolour pair(s)",
+			figure.label(), resolved.getNpcName(),
+			resolved.getModelIds().length, resolved.getRecolorFind().length);
+		return resolved.getModelIds();
+	}
+
+	/**
+	 * Merges, recolours and lights a complete set of parts.
+	 *
+	 * @return the lit model, or {@code null} for a structural failure
+	 */
+	@Nullable
+	private Model assemble(List<ModelData> parts)
+	{
+		// Always merge, even for a single part: mergeModels returns a fresh ModelData,
+		// and recolour below mutates in place. Recolouring a bare loadModelData result
+		// would corrupt the client's shared cache entry for every other user of that
+		// model.
+		ModelData combined = client.mergeModels(parts.toArray(new ModelData[0]), parts.size());
+		if (combined == null)
+		{
+			log.warn("{}: mergeModels returned null for {} part(s), cannot spawn",
+				figure.label(), parts.size());
+			return null;
+		}
+
+		short[] find = appearance == null ? new short[0] : appearance.getRecolorFind();
+		short[] replace = appearance == null ? new short[0] : appearance.getRecolorReplace();
+		if (find.length > 0)
+		{
+			// ModelData.recolor's own javadoc says to call cloneColors() first, and
+			// "mergeModels hands back a fresh instance" is an observation about an
+			// obfuscated constructor rather than a contract. A shared faceColors array
+			// repainted here would repaint every instance of that model in the world,
+			// through the client's own cache.
+			combined.cloneColors();
+			for (int i = 0; i < find.length; i++)
+			{
+				combined.recolor(find[i], replace[i]);
+			}
+		}
+
+		// The client's own defaults — ModelData.DEFAULT_AMBIENT and friends — rather
+		// than a lighting rig this plugin invented. A figure walking next to the player
+		// is compared against the player, so it should be lit the way the client lights
+		// everything else.
+		Model lit = combined.light();
+		if (lit == null)
+		{
+			log.warn("{}: lighting produced no model, cannot spawn", figure.label());
+			return null;
+		}
+
+		return lit;
+	}
+
+	/** @return whether a cache attempt may be spent this pass */
+	private boolean attemptAllowed()
+	{
+		if (attempts >= MAX_ATTEMPTS)
+		{
+			return false;
+		}
+
+		return attempts == 0 || ticksSinceAttempt >= RETRY_BACKOFF_TICKS;
+	}
+
+	private void spendAttempt()
+	{
+		attempts++;
+		ticksSinceAttempt = 0;
+	}
+}
