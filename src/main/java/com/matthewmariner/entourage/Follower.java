@@ -31,9 +31,9 @@ import net.runelite.api.coords.WorldPoint;
  * <p><b>Movement is split across two clocks, and which half does what is not an
  * implementation detail:</b>
  * <ul>
- *   <li>{@link #advanceTick} runs once per game tick. It steps the walk at most one
- *       tile, faces the follower the way it is going, and switches between the idle
- *       and walk animations.</li>
+ *   <li>{@link #onGameTick} runs once per game tick. It steps the walk one tile or two,
+ *       faces the follower the way it is going, and switches between the idle, walk
+ *       and run animations.</li>
  *   <li>{@link #advanceFrame} runs once per rendered frame. It slides the drawn
  *       position between the tile the follower left and the tile it is heading for.
  *       <b>Nothing else per frame</b> — in particular not
@@ -43,13 +43,19 @@ import net.runelite.api.coords.WorldPoint;
  *       much and {@code FollowerTest} pins the count at zero.</li>
  * </ul>
  *
- * <p><b>Both animation controllers are built once and kept.</b> An
+ * <p><b>All three animation controllers are built once and kept.</b> An
  * {@code AnimationController} <i>is</i> the animation's playback position:
  * constructing one, or calling {@code setAnimation} on one, resets its frame to zero.
  * Re-creating a controller on every idle-to-walk switch is what turns a walk cycle
  * into a stutter — the client advances the frames between game ticks and something
- * then throws that progress away. Holding both means a follower that stops and starts
- * resumes its stride instead of restarting it.
+ * then throws that progress away. Holding all three means a follower that stops and
+ * starts resumes its stride instead of restarting it.
+ *
+ * <p><b>The idle controller is the one exception, and only when the pose changes.</b>
+ * {@link EntouragePose} is a setting, so the animation the idle slot should hold can
+ * change while the follower is standing there. The controller therefore remembers which
+ * animation it was built for and is thrown away when that answer changes — which is a
+ * rebuild the user asked for, once, rather than one per tick.
  *
  * <p><b>Two kinds of failure, kept apart, because caching the wrong one loses the
  * follower for the whole session:</b>
@@ -90,6 +96,40 @@ final class Follower
 	 */
 	static final int RETRY_BACKOFF_TICKS = 25;
 
+	// --- The lighting rig for a figure standing in the world -----------------
+	//
+	// Not ModelData's DEFAULT_* constants, and the difference is visible. Those five
+	// (64, 768, -50, -10, -50) are what ModelData.light() with no arguments uses, and
+	// that is the *widget* rig: disassembled from the 1.12.38 injected client, the
+	// ModelData implementation's no-argument light() is a single call to
+	// light(64, 768, -50, -10, -50). This plugin called it, so a follower walking
+	// through Varrock was lit like a model in an interface.
+	//
+	// The five below are what the client lights a figure in the world with, read out of
+	// the same disassembly rather than copied off another plugin: the PlayerComposition
+	// implementation lights an assembled player with exactly (64, 850, -30, -50, -30),
+	// and the NPCComposition implementation lights an NPC with the same five. The two
+	// hub-published plugins that build world figures this way — follower-buddy and
+	// jebscape — both use these numbers, which is corroboration rather than the source.
+	//
+	// Written out rather than named because ModelData carries constants for the widget
+	// rig only; there is no WORLD_AMBIENT on the interface to point at.
+
+	/** Ambient light. The one value the two rigs agree on. */
+	private static final int WORLD_AMBIENT = 64;
+
+	/** Contrast: 850 in the world against the interface rig's 768. */
+	private static final int WORLD_CONTRAST = 850;
+
+	/** The light vector's x. */
+	private static final int WORLD_LIGHT_X = -30;
+
+	/** The light vector's y. */
+	private static final int WORLD_LIGHT_Y = -50;
+
+	/** The light vector's z. */
+	private static final int WORLD_LIGHT_Z = -30;
+
 	private final Client client;
 	private final EntourageFigure figure;
 	private final FollowerWalk walk;
@@ -102,7 +142,7 @@ final class Follower
 	private FollowerAppearance appearance;
 
 	/**
-	 * The two controllers, built on first use and then kept — see the class javadoc.
+	 * The three controllers, built on first use and then kept — see the class javadoc.
 	 *
 	 * <p><b>Only ever assigned a controller that actually has an animation.</b>
 	 * {@link #looping} returns null on a failed load and these stay null, so the next
@@ -113,6 +153,19 @@ final class Follower
 	 */
 	private AnimationController idleController;
 	private AnimationController walkController;
+	private AnimationController runController;
+
+	/**
+	 * Which animation {@link #idleController} was built for, so that changing the pose
+	 * setting throws away exactly the controller that is now wrong.
+	 *
+	 * <p>Kept alongside the controller rather than derived from it because
+	 * {@code AnimationController} will not say which id it was given: it exposes the
+	 * {@code Animation} it resolved, and this plugin has no way to turn one back into a
+	 * sequence id. Only ever read while {@link #idleController} is non-null.
+	 */
+	@Nullable
+	private EntourageAnimation idleAnimation;
 
 	/** The controller currently handed to the object, for the identity compare. */
 	private AnimationController installed;
@@ -190,11 +243,11 @@ final class Follower
 	 *
 	 * @return true if the object is active when this returns
 	 */
-	private boolean spawn(WorldView worldView)
+	private boolean spawn(WorldView worldView, EntourageSettings settings)
 	{
 		try
 		{
-			return trySpawn(worldView);
+			return trySpawn(worldView, settings);
 		}
 		catch (RuntimeException e)
 		{
@@ -253,8 +306,9 @@ final class Follower
 	 *
 	 * @param anchor    the tile to form up on
 	 * @param worldView the view the follower is walking in
+	 * @param settings  this tick's configuration — the slot, the distances, the pose
 	 */
-	void onGameTick(WorldPoint anchor, WorldView worldView)
+	void onGameTick(WorldPoint anchor, WorldView worldView, EntourageSettings settings)
 	{
 		if (broken)
 		{
@@ -269,16 +323,16 @@ final class Follower
 		if (!isActive())
 		{
 			walk.placeAt(anchor);
-			spawn(worldView);
+			spawn(worldView, settings);
 			return;
 		}
 
-		walk.tick(anchor, worldView);
+		walk.tick(anchor, worldView, settings);
 
 		// select() compares controllers by identity, so a follower mid-walk re-selects
 		// the one it already has and the object is left alone — which is what keeps the
 		// animation's frame counter intact.
-		select(walk.isMoving() ? walkControllerOrNull() : idleControllerOrNull());
+		select(controllerFor(settings));
 
 		object.setOrientation(walk.getOrientation());
 
@@ -360,7 +414,7 @@ final class Follower
 		return object == null ? walk.getOrientation() : object.getOrientation();
 	}
 
-	private boolean trySpawn(WorldView worldView)
+	private boolean trySpawn(WorldView worldView, EntourageSettings settings)
 	{
 		if (broken)
 		{
@@ -407,7 +461,7 @@ final class Follower
 			}
 
 			object.setModel(model);
-			select(idleControllerOrNull());
+			select(idleControllerOrNull(settings));
 		}
 
 		object.setOrientation(walk.getOrientation());
@@ -444,18 +498,56 @@ final class Follower
 		object.setAnimationController(controller);
 	}
 
+	/**
+	 * Picks the controller for what the walk says the follower is doing this tick.
+	 *
+	 * <p>Three states, in the order they degrade: a run falls back to the walk, and the
+	 * walk falls back to the pose. Every fallback is a figure that is in the right place
+	 * looking slightly wrong, which is always better than a figure that is not there.
+	 */
 	@Nullable
-	private AnimationController idleControllerOrNull()
+	private AnimationController controllerFor(EntourageSettings settings)
 	{
+		if (walk.isRunning())
+		{
+			return runControllerOrNull(settings);
+		}
+		return walk.isMoving() ? walkControllerOrNull(settings) : idleControllerOrNull(settings);
+	}
+
+	/**
+	 * The idle controller, rebuilt if — and only if — the pose setting now names a
+	 * different animation from the one it is holding.
+	 */
+	@Nullable
+	private AnimationController idleControllerOrNull(EntourageSettings settings)
+	{
+		EntourageAnimation wanted = settings.getIdlePose().animationFor(figure);
+
+		if (idleController != null && wanted != idleAnimation)
+		{
+			// The pose changed under a follower that is already standing there. Dropping
+			// the controller is the whole cost: the model, the object and the retry
+			// budget are all untouched.
+			idleController = null;
+			idleAnimation = null;
+		}
+
 		if (idleController == null)
 		{
-			idleController = looping(figure.getIdleAnimation());
+			idleController = looping(wanted);
+			// Unconditional, including when the load missed. It is only ever read
+			// alongside a non-null controller — the reset above is guarded on one — so
+			// "remember nothing on a miss" would be a branch no test could tell from this
+			// line, and a cold-cache miss is retried either way by the null controller.
+			idleAnimation = wanted;
 		}
+
 		return idleController;
 	}
 
 	@Nullable
-	private AnimationController walkControllerOrNull()
+	private AnimationController walkControllerOrNull(EntourageSettings settings)
 	{
 		if (walkController == null)
 		{
@@ -465,7 +557,26 @@ final class Follower
 		// A figure that could not load its walk keeps standing rather than freezing
 		// into a static model mid-step. Still wrong-looking, but wrong in the way that
 		// says "this figure is idle" instead of "this figure is a prop".
-		return walkController == null ? idleControllerOrNull() : walkController;
+		return walkController == null ? idleControllerOrNull(settings) : walkController;
+	}
+
+	/**
+	 * The run controller, falling back to the walk.
+	 *
+	 * <p>The fallback is not cosmetic. A follower covering two tiles with no run
+	 * animation would slide, and a follower covering two tiles with a <i>walk</i> cycle
+	 * slides half as much — which is the better of the two, and is what the client
+	 * itself does to an NPC that has no run.
+	 */
+	@Nullable
+	private AnimationController runControllerOrNull(EntourageSettings settings)
+	{
+		if (runController == null)
+		{
+			runController = looping(figure.getRunAnimation());
+		}
+
+		return runController == null ? walkControllerOrNull(settings) : runController;
 	}
 
 	/**
@@ -638,11 +749,12 @@ final class Follower
 			}
 		}
 
-		// The client's own defaults — ModelData.DEFAULT_AMBIENT and friends — rather
-		// than a lighting rig this plugin invented. A figure walking next to the player
-		// is compared against the player, so it should be lit the way the client lights
-		// everything else.
-		Model lit = combined.light();
+		// The rig the client itself lights a figure in the world with — see the five
+		// constants above. The no-argument overload this used to call is the interface
+		// one, so the follower was lit like a model in a widget while standing in a
+		// field.
+		Model lit = combined.light(
+			WORLD_AMBIENT, WORLD_CONTRAST, WORLD_LIGHT_X, WORLD_LIGHT_Y, WORLD_LIGHT_Z);
 		if (lit == null)
 		{
 			log.warn("{}: lighting produced no model, cannot spawn", figure.label());

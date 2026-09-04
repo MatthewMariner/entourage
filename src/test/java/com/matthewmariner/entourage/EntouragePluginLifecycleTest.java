@@ -35,6 +35,7 @@ public class EntouragePluginLifecycleTest
 	private FakeClient client;
 	private FakeWorldView view;
 	private InlineClientThread clientThread;
+	private FakeConfig config;
 
 	@Before
 	public void setUp()
@@ -44,11 +45,17 @@ public class EntouragePluginLifecycleTest
 		client.setTopLevelWorldView(view);
 		client.setLocalPlayer(FakePlayer.standingOn(view, STANDING));
 		clientThread = new InlineClientThread();
+		config = new FakeConfig();
 	}
 
 	private RecordingScene recordingScene()
 	{
-		return new RecordingScene(client);
+		return new RecordingScene(client, config);
+	}
+
+	private EntourageScene scene()
+	{
+		return new EntourageScene(client, config);
 	}
 
 	private static GameStateChanged stateChanged(GameState state)
@@ -77,7 +84,7 @@ public class EntouragePluginLifecycleTest
 	@Test
 	public void shutDownLeavesZeroRegisteredObjects()
 	{
-		EntourageScene scene = new EntourageScene(client);
+		EntourageScene scene = scene();
 		EntouragePlugin plugin = plugin(scene);
 
 		plugin.startUp();
@@ -94,7 +101,7 @@ public class EntouragePluginLifecycleTest
 	@Test
 	public void shutDownWithoutAStartUpIsHarmless()
 	{
-		EntourageScene scene = new EntourageScene(client);
+		EntourageScene scene = scene();
 		plugin(scene).shutDown();
 
 		assertEquals(0, client.registeredCount());
@@ -103,7 +110,7 @@ public class EntouragePluginLifecycleTest
 	@Test
 	public void aSecondShutDownStillLeavesNothing()
 	{
-		EntourageScene scene = new EntourageScene(client);
+		EntourageScene scene = scene();
 		EntouragePlugin plugin = plugin(scene);
 		plugin.startUp();
 		plugin.onGameTick(new GameTick());
@@ -301,9 +308,9 @@ public class EntouragePluginLifecycleTest
 		private int gameTicks;
 		private int frames;
 
-		private RecordingScene(net.runelite.api.Client client)
+		private RecordingScene(net.runelite.api.Client client, EntourageConfig config)
 		{
-			super(client);
+			super(client, config);
 		}
 
 		@Override

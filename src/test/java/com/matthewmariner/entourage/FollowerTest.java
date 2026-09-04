@@ -1,12 +1,16 @@
 package com.matthewmariner.entourage;
 
+import java.util.Arrays;
+import net.runelite.api.AnimationController;
 import net.runelite.api.coords.WorldPoint;
 import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -17,10 +21,31 @@ import static org.junit.Assert.assertTrue;
  * their real code — {@code setActive} really does call the client, {@code isActive}
  * really does ask it — so "is it registered?" is a question about the client's own list
  * rather than about this plugin's bookkeeping.
+ *
+ * <p><b>{@link #settled} is the fixture most of these use, and its shape is not
+ * arbitrary.</b> A follower always spawns on the player's own tile and always steps off
+ * it, and its slot is measured against the direction the player last travelled — which
+ * a player who has never moved does not have. So the fixture spends four ticks getting
+ * the follower to a known standstill with a known heading: the player ends up one tile
+ * east of the follower, having walked east to get there, so {@link FormationSlot#BEHIND}
+ * puts the slot on the follower's own row. Moving the player further east from there is
+ * a walk due east, one tile a tick, which is what keeps every "one tile, in local units"
+ * assertion below about the frame pass rather than about whichever diagonal the geometry
+ * happened to produce.
  */
 public class FollowerTest
 {
+	/** Where the follower ends up standing, once {@link #settled} has run. */
 	private static final WorldPoint ANCHOR = new WorldPoint(3221, 3218, 0);
+
+	/** Where the player ends up standing: one tile east, having walked east. */
+	private static final WorldPoint PLAYER = ANCHOR.dx(1);
+
+	/**
+	 * A player further east again, close enough not to trip the recall. The slot is one
+	 * west of it, which is due east of the follower.
+	 */
+	private static final WorldPoint EAST = ANCHOR.dx(7);
 
 	private FakeClient client;
 	private FakeWorldView view;
@@ -38,6 +63,43 @@ public class FollowerTest
 		return new Follower(client, EntourageFigure.ROGUE, ANCHOR);
 	}
 
+	private static EntourageSettings defaults()
+	{
+		return FakeConfig.defaults();
+	}
+
+	/** The shipped settings with running switched off, so a step is always one tile. */
+	private static EntourageSettings walkOnly()
+	{
+		return new FakeConfig().setCanRun(false).settings();
+	}
+
+	private Follower settled(EntourageSettings settings)
+	{
+		return settled(EntourageFigure.ROGUE, settings);
+	}
+
+	/**
+	 * Spawns the follower and walks it to a standstill on {@link #ANCHOR}, with the
+	 * player standing on {@link #PLAYER} and an eastward heading. See the class javadoc
+	 * for why that takes four ticks.
+	 *
+	 * @return the follower, active and standing still
+	 */
+	private Follower settled(EntourageFigure figure, EntourageSettings settings)
+	{
+		Follower follower = new Follower(client, figure, ANCHOR);
+		follower.onGameTick(ANCHOR, view, settings);
+		follower.onGameTick(ANCHOR, view, settings);
+		follower.onGameTick(PLAYER, view, settings);
+		follower.onGameTick(PLAYER, view, settings);
+
+		assertTrue("the fixture is supposed to leave it on screen", follower.isActive());
+		assertFalse("and standing still", follower.getWalk().isMoving());
+		assertEquals("on a known tile", ANCHOR, follower.getWalk().currentTile());
+		return follower;
+	}
+
 	// --- Coming and going ----------------------------------------------------
 
 	@Test
@@ -46,7 +108,7 @@ public class FollowerTest
 		Follower follower = follower();
 		assertFalse("nothing is registered before the first tick", follower.isActive());
 
-		follower.onGameTick(ANCHOR, view);
+		follower.onGameTick(ANCHOR, view, defaults());
 
 		assertTrue(follower.isActive());
 		assertEquals(1, client.registeredCount());
@@ -59,17 +121,40 @@ public class FollowerTest
 		Follower follower = follower();
 		WorldPoint elsewhere = ANCHOR.dx(30).dy(-20);
 
-		follower.onGameTick(elsewhere, view);
+		follower.onGameTick(elsewhere, view, defaults());
 
 		assertEquals("a follower that was not on screen arrives where the player is",
 			elsewhere, follower.getWalk().currentTile());
+	}
+
+	/**
+	 * <b>And then it gets off it.</b> A follower spawns on the player's own tile, which
+	 * is the one place it must never settle — the slot is at least one tile out by
+	 * construction, so the tick after a spawn is always a step. Under the old
+	 * "anywhere within a tile is fine" rule this did not happen: a player who spawned a
+	 * follower and then stood still had it standing inside them indefinitely.
+	 */
+	@Test
+	public void itStepsOffThePlayersTileEvenIfThePlayerNeverMoves()
+	{
+		EntourageSettings settings = defaults();
+		Follower follower = follower();
+
+		follower.onGameTick(ANCHOR, view, settings);
+		assertEquals(ANCHOR, follower.getWalk().currentTile());
+
+		follower.onGameTick(ANCHOR, view, settings);
+
+		assertTrue(follower.getWalk().isMoving());
+		assertEquals(follower.getWalk().stationTile(ANCHOR, settings),
+			follower.getWalk().currentTile());
 	}
 
 	@Test
 	public void despawnDeregistersAndIsIdempotent()
 	{
 		Follower follower = follower();
-		follower.onGameTick(ANCHOR, view);
+		follower.onGameTick(ANCHOR, view, defaults());
 
 		assertTrue(follower.despawn());
 		assertEquals(0, client.registeredCount());
@@ -89,13 +174,13 @@ public class FollowerTest
 		client = new FakeClient().withRosterNpcs().refusingRegistration();
 		Follower follower = follower();
 
-		follower.onGameTick(ANCHOR, view);
+		follower.onGameTick(ANCHOR, view, defaults());
 		assertTrue("setActive(true) not taking is a structural failure", follower.isBroken());
 
 		int mergesBefore = client.mergeCalls();
 		for (int i = 0; i < 50; i++)
 		{
-			follower.onGameTick(ANCHOR, view);
+			follower.onGameTick(ANCHOR, view, defaults());
 		}
 		assertEquals("a broken follower must not go on asking the client for anything",
 			mergesBefore, client.mergeCalls());
@@ -114,7 +199,7 @@ public class FollowerTest
 		Follower follower = follower();
 		for (int tick = 0; tick < 5; tick++)
 		{
-			follower.onGameTick(ANCHOR.dx(tick * 3), view);
+			follower.onGameTick(ANCHOR.dx(tick * 3), view, defaults());
 			for (int frame = 0; frame < 30; frame++)
 			{
 				follower.advanceFrame(view, frame / 30f);
@@ -126,7 +211,7 @@ public class FollowerTest
 
 	/**
 	 * Installing a controller resets its frame to zero — {@code setAnimation} calls
-	 * {@code reset()}. So the number of installs has to be the number of idle-to-walk
+	 * {@code reset()}. So the number of installs has to be the number of pose-to-walk
 	 * switches, not the number of game ticks: a controller reinstalled every tick is an
 	 * animation that restarts 1.6 times a second, which is what "it needs animation
 	 * smoothing" looks like from the outside.
@@ -134,48 +219,181 @@ public class FollowerTest
 	@Test
 	public void aControllerIsInstalledOncePerSwitchAndNotOncePerTick()
 	{
-		Follower follower = follower();
+		EntourageSettings settings = walkOnly();
+		Follower follower = settled(settings);
 
-		// Arrive, then stand still for a while.
-		follower.onGameTick(ANCHOR, view);
-		int afterSpawn = client.lastObject().animationControllerInstalls();
-		assertEquals("the spawn installs the idle pose", 1, afterSpawn);
+		int installs = client.lastObject().animationControllerInstalls();
+		assertEquals("the pose on the spawn, the walk on the way to the slot, the pose again",
+			3, installs);
 
 		for (int i = 0; i < 10; i++)
 		{
-			follower.onGameTick(ANCHOR, view);
+			follower.onGameTick(PLAYER, view, settings);
 		}
 		assertEquals("ten ticks of standing still install nothing new",
-			afterSpawn, client.lastObject().animationControllerInstalls());
+			installs, client.lastObject().animationControllerInstalls());
 
 		// Walk five tiles.
-		WorldPoint far = ANCHOR.dx(6);
 		for (int i = 0; i < 5; i++)
 		{
-			follower.onGameTick(far, view);
-			assertTrue("this half of the test needs it actually walking", follower.getWalk().isMoving());
+			follower.onGameTick(EAST, view, settings);
+			assertTrue("this half of the test needs it actually walking",
+				follower.getWalk().isMoving());
 		}
 		assertEquals("one switch into the walk, however many tiles it covers",
-			afterSpawn + 1, client.lastObject().animationControllerInstalls());
-
-		// Arrive and stand again.
-		follower.onGameTick(far, view);
-		assertFalse(follower.getWalk().isMoving());
-		assertEquals("one switch back to the pose",
-			afterSpawn + 2, client.lastObject().animationControllerInstalls());
+			installs + 1, client.lastObject().animationControllerInstalls());
 	}
 
 	@Test
-	public void itAsksForBothOfItsFiguresAnimations()
+	public void itAsksForItsFiguresPoseAndItsWalk()
 	{
-		Follower follower = follower();
-		follower.onGameTick(ANCHOR, view);
-		follower.onGameTick(ANCHOR.dx(6), view);
+		Follower follower = settled(walkOnly());
+		follower.onGameTick(EAST, view, walkOnly());
 
 		assertTrue("the idle pose", client.animationsLoaded()
 			.contains(EntourageFigure.ROGUE.getIdleAnimation().getId()));
 		assertTrue("the walk", client.animationsLoaded()
 			.contains(EntourageFigure.ROGUE.getWalkAnimation().getId()));
+		assertFalse("and not the run, because it walked",
+			client.animationsLoaded().contains(EntourageFigure.ROGUE.getRunAnimation().getId()));
+	}
+
+	/**
+	 * <b>A run is a third animation, not the walk played faster.</b> Covering two tiles
+	 * with a walk cycle is the sliding-mesh failure at half speed — the legs move at a
+	 * walk while the ground moves at a run — so the follower has to ask for something
+	 * different when it runs, and be seen to.
+	 */
+	@Test
+	public void aRunningFollowerAsksForTheRunAndNotForTheWalk()
+	{
+		Follower follower = follower();
+		follower.onGameTick(ANCHOR, view, defaults());
+		follower.onGameTick(ANCHOR.dx(10), view, defaults());
+
+		assertTrue("this test needs it actually running", follower.getWalk().isRunning());
+		assertTrue(client.animationsLoaded()
+			.contains(EntourageFigure.ROGUE.getRunAnimation().getId()));
+		assertFalse("a run is not a walk", client.animationsLoaded()
+			.contains(EntourageFigure.ROGUE.getWalkAnimation().getId()));
+	}
+
+	/**
+	 * The run and the walk are different controllers as well as different ids: sharing
+	 * one would mean every change of pace reset the animation's frame to zero.
+	 */
+	@Test
+	public void theRunAndTheWalkAreTwoControllers()
+	{
+		Follower follower = settled(defaults());
+
+		follower.onGameTick(EAST, view, defaults());
+		assertTrue("this test needs it running", follower.getWalk().isRunning());
+		AnimationController running = follower.getInstalledController();
+		assertNotNull(running);
+
+		// The same journey with running switched off, which is a walk.
+		follower.onGameTick(EAST, view, walkOnly());
+		assertTrue(follower.getWalk().isMoving());
+		assertFalse(follower.getWalk().isRunning());
+
+		assertNotSame("a change of pace must not reuse one controller",
+			running, follower.getInstalledController());
+	}
+
+	/**
+	 * A figure whose run will not load keeps walking rather than freezing into a static
+	 * model mid-stride — and the fallback is the walk rather than the pose, because a
+	 * walk cycle over two tiles slides half as much as no cycle at all.
+	 */
+	@Test
+	public void aFollowerWhoseRunWillNotLoadFallsBackToItsWalk()
+	{
+		client.withUnloadableAnimations(EntourageFigure.ROGUE.getRunAnimation().getId());
+		Follower follower = settled(walkOnly());
+
+		follower.onGameTick(EAST, view, walkOnly());
+		AnimationController walking = follower.getInstalledController();
+		assertNotNull("this test needs a walk controller to fall back to", walking);
+
+		follower.onGameTick(EAST, view, defaults());
+		assertTrue("this test needs it trying to run", follower.getWalk().isRunning());
+
+		assertSame("a missing run leaves the walk installed", walking,
+			follower.getInstalledController());
+	}
+
+	/**
+	 * <b>A figure whose walk will not load keeps standing rather than freezing into a
+	 * prop.</b> The alternative is installing nothing, which draws the base model
+	 * unanimated — a body sliding across the ground, which is the single most visible way
+	 * a follower plugin can look broken. Still wrong, but wrong in the way that says
+	 * "this figure is idle" rather than "this figure is scenery".
+	 *
+	 * <p>Untested until a mutation pass deleted the fallback and the whole suite stayed
+	 * green: the failed-animation tests either side of this one exercise the <i>idle</i>
+	 * and the <i>run</i>, and neither notices the middle one.
+	 */
+	@Test
+	public void aFollowerWhoseWalkWillNotLoadKeepsHoldingItsPose()
+	{
+		client.withUnloadableAnimations(EntourageFigure.ROGUE.getWalkAnimation().getId());
+		Follower follower = settled(walkOnly());
+
+		AnimationController pose = follower.getInstalledController();
+		assertNotNull("this test needs a pose to fall back to", pose);
+
+		follower.onGameTick(EAST, view, walkOnly());
+		assertTrue("this test needs it actually walking", follower.getWalk().isMoving());
+
+		assertSame("a missing walk leaves the pose installed rather than nothing", pose,
+			follower.getInstalledController());
+	}
+
+	/**
+	 * <b>A follower latched broken is touched no further, even if it is still on
+	 * screen.</b> {@code EntourageScene} marks one broken and then despawns it, and the
+	 * despawn can itself fail — a client that throws out of {@code removeRuneLiteObject}
+	 * leaves a broken follower registered. From then on, every tick that reached it would
+	 * step its walk and hand its object a new animation controller, which is the plugin
+	 * driving an object it has already decided it cannot trust.
+	 *
+	 * <p>Untested until a mutation pass deleted the latch and nothing went red: the
+	 * spawn path has a second {@code broken} check of its own, so every existing test —
+	 * all of which latch a follower that is <i>inactive</i> — was covered by that one.
+	 *
+	 * <p><b>Driven through the failed despawn rather than through {@code markBroken()}</b>,
+	 * because that is the path a client actually takes here and because the latch inside
+	 * {@code despawn}'s own catch was the second thing that mutation pass found untested.
+	 * A despawn that threw without latching leaves a follower being stepped every tick
+	 * while its deactivation goes on failing — and while there is no anchor, that is a
+	 * warning per tick as well.
+	 */
+	@Test
+	public void aDespawnThatThrewLatchesTheFollowerRatherThanLeavingItRunning()
+	{
+		Follower follower = settled(walkOnly());
+		client.refusingDeactivation();
+
+		assertFalse("the client will not let go of the object", follower.despawn());
+		assertTrue("so the follower is latched out of every later pass", follower.isBroken());
+		assertTrue("while still being registered", follower.isActive());
+
+		int installs = client.lastObject().animationControllerInstalls();
+		int animations = client.animationsLoaded().size();
+		WorldPoint where = follower.getWalk().currentTile();
+
+		for (int i = 0; i < 10; i++)
+		{
+			follower.onGameTick(EAST, view, walkOnly());
+		}
+
+		assertFalse("it must not walk", follower.getWalk().isMoving());
+		assertEquals("nor move", where, follower.getWalk().currentTile());
+		assertEquals("nor be handed a controller", installs,
+			client.lastObject().animationControllerInstalls());
+		assertEquals("nor ask the cache for anything", animations,
+			client.animationsLoaded().size());
 	}
 
 	/**
@@ -189,17 +407,84 @@ public class FollowerTest
 		client.withUnloadableAnimations(EntourageFigure.ROGUE.getIdleAnimation().getId());
 		Follower follower = follower();
 
-		follower.onGameTick(ANCHOR, view);
+		follower.onGameTick(ANCHOR, view, defaults());
 		assertTrue("a figure with no animation is still better than no figure", follower.isActive());
 		assertNull("nothing inert was installed", follower.getInstalledController());
 
 		client.clearUnloadableAnimations();
 		for (int i = 0; i < Follower.RETRY_BACKOFF_TICKS + 2; i++)
 		{
-			follower.onGameTick(ANCHOR, view);
+			follower.onGameTick(ANCHOR, view, defaults());
 		}
 
 		assertNotNull("once the cache warms up, the pose arrives", follower.getInstalledController());
+	}
+
+	// --- The idle pose setting ------------------------------------------------
+
+	@Test
+	public void theIdlePoseSettingIsWhatItHoldsWhileStandingStill()
+	{
+		EntourageSettings dancing = new FakeConfig()
+			.setIdlePose(EntouragePose.DANCE)
+			.setCanRun(false)
+			.settings();
+
+		settled(dancing);
+
+		assertTrue("it asked for the pose the user picked", client.animationsLoaded()
+			.contains(EntourageAnimation.POSE_DANCE.getId()));
+		assertFalse("and not for the figure's own stand", client.animationsLoaded()
+			.contains(EntourageFigure.ROGUE.getIdleAnimation().getId()));
+	}
+
+	/**
+	 * <b>Changing the pose while the follower is standing there has to take effect.</b>
+	 * The idle controller is cached — it has to be, or the animation would restart every
+	 * tick — so a naive cache would leave the old pose playing until something else
+	 * happened to invalidate it, which for a follower standing next to a stationary
+	 * player is never. Cheap, too: the model, the object and the retry budget are all
+	 * untouched.
+	 */
+	@Test
+	public void changingThePoseSwapsTheControllerWithoutRebuildingTheModel()
+	{
+		EntourageSettings own = new FakeConfig().setCanRun(false).settings();
+		Follower follower = settled(own);
+
+		AnimationController before = follower.getInstalledController();
+		int installs = client.lastObject().animationControllerInstalls();
+		int merges = client.mergeCalls();
+
+		EntourageSettings waving = new FakeConfig()
+			.setIdlePose(EntouragePose.WAVE)
+			.setCanRun(false)
+			.settings();
+		follower.onGameTick(PLAYER, view, waving);
+
+		assertNotSame("the pose changed, so the controller has to have", before,
+			follower.getInstalledController());
+		assertEquals("exactly one install for one change", installs + 1,
+			client.lastObject().animationControllerInstalls());
+		assertTrue(client.animationsLoaded().contains(EntourageAnimation.POSE_WAVE.getId()));
+		assertEquals("and nothing was rebuilt", merges, client.mergeCalls());
+
+		// And it stays put once it has settled on the new pose.
+		for (int i = 0; i < 10; i++)
+		{
+			follower.onGameTick(PLAYER, view, waving);
+		}
+		assertEquals("a pose that has not changed must not be reinstalled", installs + 1,
+			client.lastObject().animationControllerInstalls());
+	}
+
+	@Test
+	public void theDefaultPoseIsWhateverTheFigureItselfStandsWith()
+	{
+		settled(new FakeConfig().setCanRun(false).settings());
+
+		assertTrue(client.animationsLoaded()
+			.contains(EntourageFigure.ROGUE.getIdleAnimation().getId()));
 	}
 
 	// --- The frame clock -----------------------------------------------------
@@ -207,13 +492,12 @@ public class FollowerTest
 	@Test
 	public void aStandingFollowerIsNotRePlacedEveryFrame()
 	{
-		Follower follower = follower();
-		follower.onGameTick(ANCHOR, view);
+		Follower follower = settled(walkOnly());
 
-		int afterSpawn = client.lastObject().setLocationCalls();
+		int afterTick = client.lastObject().setLocationCalls();
 		follower.advanceFrame(view, 0f);
 		int afterFirstFrame = client.lastObject().setLocationCalls();
-		assertEquals("the first frame after a tick always places it", afterSpawn + 1, afterFirstFrame);
+		assertEquals("the first frame after a tick always places it", afterTick + 1, afterFirstFrame);
 
 		for (int frame = 1; frame < 30; frame++)
 		{
@@ -228,9 +512,8 @@ public class FollowerTest
 	@Test
 	public void aWalkingFollowerIsRePlacedEveryFrame()
 	{
-		Follower follower = follower();
-		follower.onGameTick(ANCHOR, view);
-		follower.onGameTick(ANCHOR.dx(6), view);
+		Follower follower = settled(walkOnly());
+		follower.onGameTick(EAST, view, walkOnly());
 		assertTrue(follower.getWalk().isMoving());
 
 		int before = client.lastObject().setLocationCalls();
@@ -256,19 +539,16 @@ public class FollowerTest
 	@Test
 	public void aFollowerThatStoodStillIsDrawnMovingAgainWhenItWalks()
 	{
-		Follower follower = follower();
-		follower.onGameTick(ANCHOR, view);
+		Follower follower = settled(walkOnly());
 
-		// Stand still, and let the frame pass settle it — which is the state the next
-		// game tick has to undo.
-		follower.onGameTick(ANCHOR, view);
+		// Let the frame pass settle it, which is the state the next game tick has to undo.
 		for (int frame = 0; frame < 30; frame++)
 		{
 			follower.advanceFrame(view, frame / 30f);
 		}
 		int whileStanding = client.lastObject().setLocationCalls();
 
-		follower.onGameTick(ANCHOR.dx(6), view);
+		follower.onGameTick(EAST, view, walkOnly());
 		assertTrue("this test needs it actually walking", follower.getWalk().isMoving());
 
 		follower.advanceFrame(view, 0f);
@@ -284,9 +564,8 @@ public class FollowerTest
 	@Test
 	public void theDrawnPositionMovesAcrossTheStep()
 	{
-		Follower follower = follower();
-		follower.onGameTick(ANCHOR, view);
-		follower.onGameTick(ANCHOR.dx(6), view);
+		Follower follower = settled(walkOnly());
+		follower.onGameTick(EAST, view, walkOnly());
 
 		follower.advanceFrame(view, 0f);
 		int start = follower.getRenderLocation().getX();
@@ -300,7 +579,7 @@ public class FollowerTest
 	public void aDeactivatedFollowerIsNotMovedByTheFramePass()
 	{
 		Follower follower = follower();
-		follower.onGameTick(ANCHOR, view);
+		follower.onGameTick(ANCHOR, view, defaults());
 		follower.despawn();
 
 		int before = client.lastObject().setLocationCalls();
@@ -315,9 +594,8 @@ public class FollowerTest
 	@Test
 	public void theObjectIsFacedTheWayTheWalkSaysItIsGoing()
 	{
-		Follower follower = follower();
-		follower.onGameTick(ANCHOR, view);
-		follower.onGameTick(ANCHOR.dx(6), view);
+		Follower follower = settled(walkOnly());
+		follower.onGameTick(EAST, view, walkOnly());
 
 		assertEquals(StepOrientation.forStep(1, 0), follower.getRenderOrientation());
 	}
@@ -334,11 +612,36 @@ public class FollowerTest
 	public void theLitModelReachesTheObject()
 	{
 		Follower follower = follower();
-		follower.onGameTick(ANCHOR, view);
+		follower.onGameTick(ANCHOR, view, defaults());
 
 		assertTrue(follower.isActive());
 		assertNotNull("a registered object with no base model is a figure that draws nothing",
 			client.lastObject().getBaseModel());
+	}
+
+	/**
+	 * <b>The follower is lit for the world, not for an interface.</b>
+	 * {@code ModelData.light()} with no arguments is the widget rig — disassembled from
+	 * the 1.12.38 injected client it is one call to {@code light(64, 768, -50, -10, -50)},
+	 * which is {@code ModelData}'s own {@code DEFAULT_*} constants — and this plugin
+	 * called it, so a figure walking through Varrock was lit like a model in a panel. The
+	 * five below are what the same client lights a player and an NPC with: the
+	 * {@code PlayerComposition} and {@code NPCComposition} implementations both call
+	 * {@code light(64, 850, -30, -50, -30)}.
+	 */
+	@Test
+	public void theModelIsLitTheWayTheClientLightsAFigureInTheWorld()
+	{
+		follower().onGameTick(ANCHOR, view, defaults());
+
+		FakeModelData merged = client.lastMerged();
+		assertNotNull(merged);
+		assertTrue(merged.wasLit());
+		assertNotNull("the no-argument overload is the interface rig, not the world one",
+			merged.lighting());
+		assertEquals("the world lighting rig, as the client itself uses it",
+			Arrays.toString(new int[]{64, 850, -30, -50, -30}),
+			Arrays.toString(merged.lighting()));
 	}
 
 	/**
@@ -356,13 +659,13 @@ public class FollowerTest
 		client.setTopLevelWorldView(upstairsView);
 		Follower follower = new Follower(client, EntourageFigure.ROGUE, upstairs);
 
-		follower.onGameTick(upstairs, upstairsView);
+		follower.onGameTick(upstairs, upstairsView, walkOnly());
 
 		assertTrue(follower.isActive());
 		assertEquals("the spawn places it on its own plane, not on the ground floor",
 			2, client.lastObject().getLevel());
 
-		follower.onGameTick(upstairs.dx(6), upstairsView);
+		follower.onGameTick(upstairs.dx(7), upstairsView, walkOnly());
 		assertTrue("this test needs it actually walking", follower.getWalk().isMoving());
 		follower.advanceFrame(upstairsView, 0.5f);
 
@@ -377,7 +680,7 @@ public class FollowerTest
 		client.setCacheCold(true);
 		Follower follower = follower();
 
-		follower.onGameTick(ANCHOR, view);
+		follower.onGameTick(ANCHOR, view, defaults());
 
 		assertFalse("nothing to draw yet", follower.isActive());
 		assertFalse("but nothing is wrong with it either", follower.isBroken());
@@ -392,7 +695,7 @@ public class FollowerTest
 
 		for (int i = 0; i < 400; i++)
 		{
-			follower.onGameTick(ANCHOR, view);
+			follower.onGameTick(ANCHOR, view, defaults());
 		}
 
 		assertEquals("three attempts a scene load, not one a tick",
@@ -405,9 +708,9 @@ public class FollowerTest
 		client.setCacheCold(true);
 		Follower follower = follower();
 
-		follower.onGameTick(ANCHOR, view);
-		follower.onGameTick(ANCHOR, view);
-		follower.onGameTick(ANCHOR, view);
+		follower.onGameTick(ANCHOR, view, defaults());
+		follower.onGameTick(ANCHOR, view, defaults());
+		follower.onGameTick(ANCHOR, view, defaults());
 
 		assertEquals("a cache that warms up over seconds is not re-tested three times in two",
 			1, client.npcDefinitionsRequested().size());
@@ -420,14 +723,14 @@ public class FollowerTest
 		Follower follower = follower();
 		for (int i = 0; i < 400; i++)
 		{
-			follower.onGameTick(ANCHOR, view);
+			follower.onGameTick(ANCHOR, view, defaults());
 		}
 		assertEquals(Follower.MAX_ATTEMPTS, client.npcDefinitionsRequested().size());
 
 		follower.onSceneEntered();
 		for (int i = 0; i < 400; i++)
 		{
-			follower.onGameTick(ANCHOR, view);
+			follower.onGameTick(ANCHOR, view, defaults());
 		}
 
 		assertEquals("crossing a region border is the right moment to re-test a cold cache",
@@ -439,13 +742,13 @@ public class FollowerTest
 	{
 		client.setCacheCold(true);
 		Follower follower = follower();
-		follower.onGameTick(ANCHOR, view);
+		follower.onGameTick(ANCHOR, view, defaults());
 		assertFalse(follower.isActive());
 
 		client.setCacheCold(false);
 		for (int i = 0; i < Follower.RETRY_BACKOFF_TICKS + 2; i++)
 		{
-			follower.onGameTick(ANCHOR, view);
+			follower.onGameTick(ANCHOR, view, defaults());
 		}
 
 		assertTrue(follower.isActive());
@@ -460,11 +763,46 @@ public class FollowerTest
 		client.setTopLevelWorldView(view);
 		Follower follower = follower();
 
-		follower.onGameTick(ANCHOR, view);
+		follower.onGameTick(ANCHOR, view, defaults());
 
 		assertFalse("a figure with no torso is worse than no figure", follower.isActive());
 		assertFalse(follower.isBroken());
 		assertEquals("and nothing half-built was merged", 0, client.mergeCalls());
+	}
+
+	/**
+	 * <b>The composition is resolved once and remembered, and the retry path is the only
+	 * thing that can prove it.</b> Everywhere else, "what models does this figure wear?"
+	 * is asked exactly once, because the answer is consumed straight into a model that is
+	 * then cached — so a memo that did nothing would look identical. The case that tells
+	 * them apart is an NPC that resolves while its <i>models</i> miss: the follower comes
+	 * back for another go at the models, and it must not spend that go re-asking a
+	 * question it already has the answer to.
+	 *
+	 * <p>Untested until a mutation pass deleted the memo and nothing went red.
+	 */
+	@Test
+	public void anAppearanceThatResolvedIsNotResolvedAgainOnARetry()
+	{
+		client = new FakeClient()
+			.withNpc(EntourageFigure.ROGUE.getNpcId(), FakeNpcComposition.of("Rogue", 11, 22, 33))
+			.withUnloadableModels(22);
+		client.setTopLevelWorldView(view);
+		Follower follower = follower();
+
+		follower.onGameTick(ANCHOR, view, defaults());
+		assertEquals("the composition resolved", 1, client.npcDefinitionsRequested().size());
+		int modelsAsked = client.modelsLoaded().size();
+
+		for (int i = 0; i < Follower.RETRY_BACKOFF_TICKS + 2; i++)
+		{
+			follower.onGameTick(ANCHOR, view, defaults());
+		}
+
+		assertTrue("this test needs the models to have been retried",
+			client.modelsLoaded().size() > modelsAsked);
+		assertEquals("but the composition is remembered, not asked for again",
+			1, client.npcDefinitionsRequested().size());
 	}
 
 	// --- Dressing ------------------------------------------------------------
@@ -476,7 +814,7 @@ public class FollowerTest
 			.withNpc(EntourageFigure.ROGUE.getNpcId(), FakeNpcComposition.of("Rogue", 11, 22, 33));
 		client.setTopLevelWorldView(view);
 
-		follower().onGameTick(ANCHOR, view);
+		follower().onGameTick(ANCHOR, view, defaults());
 
 		assertEquals(1, client.mergeCalls());
 		assertEquals(3, client.lastMergePartCount());
@@ -497,7 +835,7 @@ public class FollowerTest
 				new short[]{4550, 900}, new short[]{100, 200}));
 		client.setTopLevelWorldView(view);
 
-		follower().onGameTick(ANCHOR, view);
+		follower().onGameTick(ANCHOR, view, defaults());
 
 		FakeModelData merged = client.lastMerged();
 		assertNotNull(merged);
@@ -512,7 +850,7 @@ public class FollowerTest
 	@Test
 	public void aFigureWithNoRecoloursIsNotCloned()
 	{
-		follower().onGameTick(ANCHOR, view);
+		follower().onGameTick(ANCHOR, view, defaults());
 
 		FakeModelData merged = client.lastMerged();
 		assertNotNull(merged);
@@ -525,12 +863,33 @@ public class FollowerTest
 	public void theModelIsBuiltOnceAndKeptAcrossADespawn()
 	{
 		Follower follower = follower();
-		follower.onGameTick(ANCHOR, view);
+		follower.onGameTick(ANCHOR, view, defaults());
 		follower.despawn();
-		follower.onGameTick(ANCHOR, view);
+		follower.onGameTick(ANCHOR, view, defaults());
 
 		assertTrue(follower.isActive());
 		assertEquals("walking out of the world and back is an activate, not a rebuild",
 			1, client.mergeCalls());
+	}
+
+	/**
+	 * A figure that is not the default, built end to end. Every other test in this class
+	 * uses the rogue, whose animations are the human rig's own — so a follower that
+	 * ignored its figure's declared pair and always played 808/819 would pass all of
+	 * them.
+	 */
+	@Test
+	public void aFigureWithItsOwnAnimationsPlaysThoseAndNotTheHumanOnes()
+	{
+		Follower follower = settled(EntourageFigure.NIEVE, walkOnly());
+		follower.onGameTick(EAST, view, walkOnly());
+
+		assertTrue(follower.isActive());
+		assertTrue("her own stand", client.animationsLoaded()
+			.contains(EntourageAnimation.STAFF_STAND.getId()));
+		assertTrue("her own walk", client.animationsLoaded()
+			.contains(EntourageAnimation.HALBERD_WALK.getId()));
+		assertFalse("and not the human rig's", client.animationsLoaded()
+			.contains(EntourageAnimation.HUMAN_WALK.getId()));
 	}
 }

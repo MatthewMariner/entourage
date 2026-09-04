@@ -124,12 +124,30 @@ final class FakeClient extends StubClient
 	@Override
 	public void removeRuneLiteObject(RuneLiteObjectController controller)
 	{
+		removalAttempts++;
 		if (throwFromRemoval)
 		{
 			throw new IllegalStateException("the client will not let go of this object");
 		}
 		registered.remove(controller);
 	}
+
+	/**
+	 * @return how many times anything asked the client to deactivate an object,
+	 * successful or not.
+	 *
+	 * <p>Counted because "we gave up trying" is otherwise unobservable. A retirement that
+	 * could not let go of its object has to stop retrying — a scene which noticed the
+	 * same figure mismatch on every tick would attempt a deactivation, and log a warning,
+	 * 100 times a minute for the rest of the session — and the only trace of the latch
+	 * that stops it is the call that does not happen.
+	 */
+	int removalAttempts()
+	{
+		return removalAttempts;
+	}
+
+	private int removalAttempts;
 
 	@Override
 	public boolean isRuneLiteObjectRegistered(RuneLiteObjectController controller)

@@ -1,5 +1,6 @@
 package com.matthewmariner.entourage;
 
+import com.google.inject.Provides;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
@@ -10,6 +11,7 @@ import net.runelite.api.events.BeforeRender;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.client.callback.ClientThread;
+import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
@@ -17,11 +19,19 @@ import net.runelite.client.plugins.PluginDescriptor;
 /**
  * A cosmetic figure that walks with you and holds a pose when you stop.
  *
- * <p>Singular on purpose: {@link EntourageFigure#DEFAULT_ROSTER} ships one, and the
- * plugin is named for what it grows into rather than for what it currently spawns.
- * The user-facing strings — {@code @PluginDescriptor}'s {@code description} below and
+ * <p>Singular on purpose: {@link EntourageScene} spawns one figure — whichever one
+ * {@link EntourageConfig#figure()} names — and the plugin is named for what it grows
+ * into rather than for what it currently spawns. The user-facing strings —
+ * {@code @PluginDescriptor}'s {@code description} below and
  * {@code runelite-plugin.properties} — say one for the same reason, and they said
  * "a small group" in two slightly different wordings until a review noticed.
+ *
+ * <p><b>The settings are read by the scene, not by this class.</b> There is a
+ * {@code @Provides} for the config interface at the bottom of this file and deliberately
+ * no {@code ConfigChanged} handler: {@link EntourageScene} re-reads every setting at the
+ * top of each game tick and notices a change of figure by comparing it, which cannot
+ * miss an event, cannot race the tick that is about to use the answer, and cannot fire
+ * while nobody is logged in.
  *
  * <p>Client-side only. Nothing here is visible to anybody else, no packet is sent, and
  * no information about any other player is read.
@@ -63,9 +73,9 @@ import net.runelite.client.plugins.PluginDescriptor;
 	name = "Entourage",
 	// Singular, and byte-identical to runelite-plugin.properties. This is the
 	// in-client panel's copy of a string the hub listing also carries; the two
-	// used to differ from each other, and both used to promise a group while
-	// EntourageFigure.DEFAULT_ROSTER shipped one figure. Change them together.
-	description = "A cosmetic figure that walks with you and holds a pose when you stop",
+	// used to differ from each other, and both used to promise a group while the
+	// plugin shipped one figure. Change them together.
+	description = "A cosmetic figure of your choosing that walks with you and holds a pose when you stop",
 	tags = {"cosmetic", "follower", "entourage", "immersion", "npc"}
 )
 public class EntouragePlugin extends Plugin
@@ -237,5 +247,21 @@ public class EntouragePlugin extends Plugin
 			return 1f;
 		}
 		return elapsed / (float) CLIENT_TICKS_PER_GAME_TICK;
+	}
+
+	/**
+	 * The Guice binding for the settings interface.
+	 *
+	 * <p>{@code ConfigManager.getConfig} builds a proxy over the user's profile;
+	 * {@code EntourageScene} takes the interface, so a test can hand it a plain
+	 * implementation instead. There is deliberately no {@code ConfigChanged} handler:
+	 * the scene re-reads every setting at the top of each game tick and notices a figure
+	 * swap by comparing it, which cannot miss an event or race the tick that is about to
+	 * use the answer.
+	 */
+	@Provides
+	EntourageConfig provideConfig(ConfigManager configManager)
+	{
+		return configManager.getConfig(EntourageConfig.class);
 	}
 }

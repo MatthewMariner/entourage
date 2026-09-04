@@ -32,6 +32,17 @@ import net.runelite.api.coords.WorldPoint;
  * model is not, so walking out of the world and back costs an activate/deactivate
  * rather than a merge and a light.
  *
+ * <p><b>The one thing that does rebuild is a change of figure</b>, and it has to: the
+ * figure decides which {@code NPCComposition} the model was merged out of, so a new one
+ * is a new model. It is noticed here, at the top of the tick, by comparing the
+ * configured figure against the one the roster was built for — rather than by
+ * subscribing to {@code ConfigChanged}. One reference compare per tick cannot miss an
+ * event, cannot fire in the wrong order relative to the tick that is about to use the
+ * roster, and cannot fire while the player is logged out; and the tick is 600ms, which
+ * is as immediate as a settings change needs to be. The retirement goes through the
+ * same "only forget what really came off the screen" path {@link #shutdown()} uses,
+ * because a figure swap must not be a way to leak the old figure.
+ *
  * <p><b>Client thread only.</b> Every method here reaches live client state, directly
  * or through {@link Follower}.
  */
@@ -40,7 +51,19 @@ import net.runelite.api.coords.WorldPoint;
 class EntourageScene
 {
 	private final Client client;
+	private final EntourageConfig config;
 	private final List<Follower> followers = new ArrayList<>();
+
+	/**
+	 * The figure {@link #followers} was built for, or {@code null} when there is no
+	 * roster.
+	 *
+	 * <p>Kept separately from {@code followers.get(0).getFigure()} so that a retirement
+	 * which could not let go of its object — see {@link #retire()} — does not turn into
+	 * a rebuild attempt on every subsequent tick, and one warning per tick with it.
+	 */
+	@Nullable
+	private EntourageFigure rosterFigure;
 
 	/**
 	 * The last resolution reported, so the log says "the anchor went away" once rather
@@ -50,9 +73,10 @@ class EntourageScene
 	private FollowerAnchor.Resolution lastResolution;
 
 	@Inject
-	EntourageScene(Client client)
+	EntourageScene(Client client, EntourageConfig config)
 	{
 		this.client = client;
+		this.config = config;
 	}
 
 	/**
@@ -76,12 +100,17 @@ class EntourageScene
 			return;
 		}
 
+		// Read once per tick, after the anchor check so that a plugin nobody is logged
+		// into does not touch the config proxy at all. See EntourageSettings on why this
+		// is a snapshot rather than the config itself.
+		EntourageSettings settings = EntourageSettings.from(config);
+
 		WorldPoint tile = anchor.getTile();
-		for (Follower follower : roster())
+		for (Follower follower : roster(settings))
 		{
 			try
 			{
-				follower.onGameTick(tile, worldView);
+				follower.onGameTick(tile, worldView, settings);
 			}
 			catch (RuntimeException e)
 			{
@@ -169,18 +198,38 @@ class EntourageScene
 	 */
 	int shutdown()
 	{
+		int deactivated = retire();
+		lastResolution = null;
+
+		log.debug("shutdown deactivated {} follower(s)", deactivated);
+		return deactivated;
+	}
+
+	/**
+	 * Takes every follower off the screen and forgets the ones that really went.
+	 *
+	 * <p>Shared by {@link #shutdown()} and by the figure swap, because they need exactly
+	 * the same guarantee: a follower whose object could not be deactivated is kept, so
+	 * that something still holds the reference and a later pass can try again. The
+	 * alternative — clearing the list unconditionally — drops the last reference to an
+	 * object the client still has, which is a figure standing in the world that nothing
+	 * owns and nothing short of a client restart can remove.
+	 *
+	 * @return how many followers were actually deactivated
+	 */
+	private int retire()
+	{
 		int deactivated = despawnAll();
 
 		followers.removeIf(follower -> !stillRegistered(follower));
-		lastResolution = null;
+		rosterFigure = null;
 
 		if (!followers.isEmpty())
 		{
-			log.warn("shutdown could not deactivate {} follower(s) — holding the reference(s) "
+			log.warn("could not deactivate {} follower(s) — holding the reference(s) "
 				+ "rather than leaking the object(s)", followers.size());
 		}
 
-		log.debug("shutdown deactivated {} follower(s)", deactivated);
 		return deactivated;
 	}
 
@@ -211,23 +260,38 @@ class EntourageScene
 	}
 
 	/**
-	 * Builds the roster on first use rather than in the constructor, so that a plugin
-	 * that is enabled and never logged in has allocated nothing.
+	 * The followers to run this tick, built on first use and rebuilt when the configured
+	 * figure changes.
+	 *
+	 * <p>Built lazily rather than in the constructor so that a plugin which is enabled
+	 * and never logged in has allocated nothing.
+	 *
+	 * <p><b>One follower.</b> Getting a single figure to walk correctly is what this
+	 * plugin does today; a formation of four figures doing it wrong is not four times
+	 * the feature. This loop is the seam a formation extends — it is already a list, and
+	 * {@link FormationSlot} already turns a slot into a tile — and nothing else has to
+	 * change to make a second one appear.
 	 */
-	private List<Follower> roster()
+	private List<Follower> roster(EntourageSettings settings)
 	{
+		EntourageFigure figure = settings.getFigure();
+
+		if (rosterFigure != null && rosterFigure != figure)
+		{
+			log.debug("figure changed from {} to {}, retiring the roster", rosterFigure, figure);
+			retire();
+		}
+
 		if (followers.isEmpty())
 		{
-			for (EntourageFigure figure : EntourageFigure.DEFAULT_ROSTER)
-			{
-				// The starting tile is a placeholder: a follower that is not active
-				// places itself on the anchor before it spawns, every tick, so this is
-				// only ever the value held for the few microseconds before that
-				// happens.
-				followers.add(new Follower(client, figure, new WorldPoint(0, 0, 0)));
-			}
-			log.debug("roster is {} follower(s)", followers.size());
+			// The starting tile is a placeholder: a follower that is not active places
+			// itself on the anchor before it spawns, every tick, so this is only ever
+			// the value held for the few microseconds before that happens.
+			followers.add(new Follower(client, figure, new WorldPoint(0, 0, 0)));
+			rosterFigure = figure;
+			log.debug("roster is {} follower(s): {}", followers.size(), figure.label());
 		}
+
 		return followers;
 	}
 

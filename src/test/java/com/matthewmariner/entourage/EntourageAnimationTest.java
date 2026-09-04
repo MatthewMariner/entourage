@@ -1,5 +1,6 @@
 package com.matthewmariner.entourage;
 
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Set;
 import net.runelite.api.gameval.AnimationID;
@@ -21,20 +22,51 @@ import static org.junit.Assert.assertTrue;
  */
 public class EntourageAnimationTest
 {
-	@Test
-	public void theStandIsTheHumanRigsOwnReadyPose()
-	{
-		assertEquals(AnimationID.HUMAN_READY, EntourageAnimation.HUMAN_STAND.getId());
-		assertEquals("HUMAN_READY has been 808 for the life of this cache",
-			808, EntourageAnimation.HUMAN_STAND.getId());
-	}
+	private final EnumSet<EntourageAnimation> pinned = EnumSet.noneOf(EntourageAnimation.class);
 
 	@Test
-	public void theWalkIsTheHumanRigsOwnForwardWalk()
+	public void everyIdIsTheConstantAndTheNumber()
 	{
-		assertEquals(AnimationID.HUMAN_WALK_F, EntourageAnimation.HUMAN_WALK.getId());
-		assertEquals("HUMAN_WALK_F has been 819 for the life of this cache",
-			819, EntourageAnimation.HUMAN_WALK.getId());
+		// The human rig's own three.
+		pin(EntourageAnimation.HUMAN_STAND, AnimationID.HUMAN_READY, 808);
+		pin(EntourageAnimation.HUMAN_WALK, AnimationID.HUMAN_WALK_F, 819);
+		pin(EntourageAnimation.HUMAN_RUN, AnimationID.HUMAN_RUNNING, 824);
+
+		// Stands and walks for bodies that are holding something.
+		pin(EntourageAnimation.STAFF_STAND, AnimationID.HUMAN_STAFFREADY, 813);
+		pin(EntourageAnimation.WEAPON_STAND, AnimationID.HUMAN_DH_WEAPON_READY, 2561);
+		pin(EntourageAnimation.SWORD_STAND, AnimationID.DH_SWORD_UPDATE_READY, 7053);
+		pin(EntourageAnimation.WALKING_STICK_WALK, AnimationID.WALK_WALKINGSTICK, 1146);
+		pin(EntourageAnimation.HALBERD_WALK, AnimationID.HUMAN_HALBERDWALK_F, 1205);
+		pin(EntourageAnimation.WEAPON_WALK, AnimationID.HUMAN_DH_WEAPON_WALK, 2562);
+		pin(EntourageAnimation.SWORD_WALK, AnimationID.DH_SWORD_UPDATE_WALK, 7052);
+
+		// Poses.
+		pin(EntourageAnimation.POSE_DANCE, AnimationID.EMOTE_DANCE_LOOP, 10048);
+		pin(EntourageAnimation.POSE_CHEER, AnimationID.EMOTE_CHEER_LOOP, 196);
+		pin(EntourageAnimation.POSE_WAVE, AnimationID.EMOTE_WAVE_LOOP, 197);
+		pin(EntourageAnimation.POSE_SHRUG, AnimationID.EMOTE_SHRUG_LOOP, 12056);
+		pin(EntourageAnimation.POSE_FLEX, AnimationID.EMOTE_FLEX_LOOP, 12064);
+		pin(EntourageAnimation.POSE_SIT, AnimationID.EMOTE_SIT_LOOP, 10061);
+		pin(EntourageAnimation.POSE_CLAP, AnimationID.EMOTE_CLAP_LOOP, 3193);
+		pin(EntourageAnimation.POSE_PANIC, AnimationID.EMOTE_PANIC_LOOP, 12050);
+		pin(EntourageAnimation.POSE_BOW, AnimationID.EMOTE_BOW_LOOP, 192);
+		pin(EntourageAnimation.POSE_LEAN, AnimationID.HUMAN_LEAN_READY, 916);
+		pin(EntourageAnimation.POSE_CROSSED_ARMS, AnimationID.RD_KNIGHT_CROSSED_ARMS, 2256);
+		pin(EntourageAnimation.POSE_SMUG, AnimationID.HUMAN_SMUG_IDLE, 14000);
+		pin(EntourageAnimation.POSE_NERVOUS, AnimationID.NERVOUS_IDLE, 10680);
+
+		assertEquals("an animation with no line above is one nobody has checked the id of",
+			EntourageAnimation.values().length, pinned.size());
+	}
+
+	private void pin(EntourageAnimation animation, int constant, int literal)
+	{
+		assertEquals(animation + " names a different gameval constant than documented",
+			constant, animation.getId());
+		assertEquals(animation + ": that constant has been renumbered under the enum",
+			literal, animation.getId());
+		assertTrue(animation + " is pinned twice", pinned.add(animation));
 	}
 
 	/**
@@ -49,6 +81,22 @@ public class EntourageAnimationTest
 		assertNotEquals("backwards", AnimationID.HUMAN_WALK_B, walk);
 		assertNotEquals("left", AnimationID.HUMAN_WALK_L, walk);
 		assertNotEquals("right", AnimationID.HUMAN_WALK_R, walk);
+	}
+
+	/**
+	 * The same claim for the halberd walk, which the cache also ships in four
+	 * directions. A follower that walked forwards with the halberd's <i>backwards</i>
+	 * animation is a figure moon-walking with a polearm, which is a worse version of the
+	 * exact failure the plain walk's neighbours test exists to prevent.
+	 */
+	@Test
+	public void theHalberdWalkIsTheForwardOneToo()
+	{
+		int walk = EntourageAnimation.HALBERD_WALK.getId();
+		assertEquals(AnimationID.HUMAN_HALBERDWALK_F, walk);
+		assertNotEquals("backwards", AnimationID.HUMAN_HALBERDWALK_B, walk);
+		assertNotEquals("left", AnimationID.HUMAN_HALBERDWALK_L, walk);
+		assertNotEquals("right", AnimationID.HUMAN_HALBERDWALK_R, walk);
 	}
 
 	/**
