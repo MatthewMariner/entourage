@@ -13,6 +13,7 @@ import net.runelite.client.callback.ClientThread;
 import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -38,6 +39,7 @@ public class EntouragePluginLifecycleTest
 	private InlineClientThread clientThread;
 	private FakeConfig config;
 	private RecordingOverlayRegistry overlays;
+	private RecordingSidePanel sidebar;
 
 	@Before
 	public void setUp()
@@ -49,6 +51,7 @@ public class EntouragePluginLifecycleTest
 		clientThread = new InlineClientThread();
 		config = new FakeConfig();
 		overlays = new RecordingOverlayRegistry();
+		sidebar = new RecordingSidePanel();
 	}
 
 	private RecordingScene recordingScene()
@@ -68,6 +71,14 @@ public class EntouragePluginLifecycleTest
 		return event;
 	}
 
+	private static net.runelite.client.events.ConfigChanged configChanged(String group)
+	{
+		net.runelite.client.events.ConfigChanged event =
+			new net.runelite.client.events.ConfigChanged();
+		event.setGroup(group);
+		return event;
+	}
+
 	private EntouragePlugin plugin(EntourageScene scene)
 	{
 		EntouragePlugin plugin = new EntouragePlugin();
@@ -75,6 +86,7 @@ public class EntouragePluginLifecycleTest
 		plugin.clientThread = clientThread;
 		plugin.scene = scene;
 		plugin.overlayRegistry = overlays;
+		plugin.sidePanel = sidebar;
 
 		// A null plugin reference, which is what Overlay(Plugin) is given here and in
 		// ../lively-cities' own overlay tests: the base class keeps it for the settings
@@ -90,11 +102,12 @@ public class EntouragePluginLifecycleTest
 	 * followers really spawned first. A teardown test that shuts down an empty plugin
 	 * passes whether or not the teardown does anything at all.
 	 *
-	 * <p><b>The overlay is held to the same standard as the objects</b>, and for the same
-	 * reason: one left in the {@code OverlayManager} goes on being drawn after the plugin
-	 * that owns it has stopped, over a roster that has been emptied underneath it. It is
-	 * counted off {@link RecordingOverlayRegistry} rather than off {@code shutDown()}
-	 * being read.
+	 * <p><b>The overlay and the sidebar button are held to the same standard as the
+	 * objects</b>, and for the same reason: an overlay left in the {@code OverlayManager}
+	 * goes on being drawn after the plugin that owns it has stopped, over a roster that has
+	 * been emptied underneath it, and a navigation button left in the {@code ClientToolbar}
+	 * opens a panel that goes on writing settings for a plugin that is not running. Both are
+	 * counted off recording implementations rather than off {@code shutDown()} being read.
 	 */
 	@Test
 	public void shutDownLeavesZeroRegisteredObjects()
@@ -107,6 +120,7 @@ public class EntouragePluginLifecycleTest
 		assertTrue("the figures have to be there before the teardown means anything",
 			client.registeredCount() > 0);
 		assertEquals("and so does the overlay", 1, overlays.registered.size());
+		assertTrue("and so does the sidebar button", sidebar.isShown());
 
 		plugin.shutDown();
 
@@ -114,6 +128,85 @@ public class EntouragePluginLifecycleTest
 		assertTrue(scene.getFollowers().isEmpty());
 		assertTrue("an overlay left registered goes on drawing after shutdown",
 			overlays.registered.isEmpty());
+		assertFalse("a button left in the toolbar opens a panel for a plugin that is not running",
+			sidebar.isShown());
+	}
+
+	/**
+	 * The sidebar button, added exactly once and taken away exactly once.
+	 *
+	 * <p>{@code ClientToolbar} keys its navigation off the button <i>instance</i>, so a
+	 * {@code @Provides} that built a fresh one on the way back in would leave the old one
+	 * behind — and a plugin toggled five times would leave five buttons in the toolbar, four
+	 * of them dead. The counts are what catch that; a boolean would not, because "added
+	 * twice, removed once" and "added once, removed never" both read as "still there".
+	 */
+	@Test
+	public void theSidebarButtonIsAddedOnceAndTakenAwayOnce()
+	{
+		EntouragePlugin plugin = plugin(scene());
+
+		plugin.startUp();
+		assertEquals(1, sidebar.showCount());
+		assertEquals(0, sidebar.hideCount());
+
+		plugin.shutDown();
+		assertEquals("one add and one remove, not a rebuild", 1, sidebar.showCount());
+		assertEquals(1, sidebar.hideCount());
+	}
+
+	/**
+	 * <b>Enabling at the login screen still puts the button there.</b> The first tick pass
+	 * is skipped when nobody is logged in — there is no world to spawn into — and it would be
+	 * easy to skip the button with it. A plugin whose only visible surface appears once you
+	 * log in is a plugin that looks broken from the login screen, which is where somebody
+	 * enabling it is standing.
+	 */
+	@Test
+	public void theButtonAppearsEvenWithNobodyLoggedIn()
+	{
+		RecordingScene scene = recordingScene();
+		client.setGameState(GameState.LOGIN_SCREEN);
+
+		plugin(scene).startUp();
+
+		assertEquals(0, scene.gameTicks);
+		assertTrue("the button is not conditional on a world being loaded", sidebar.isShown());
+	}
+
+	/**
+	 * A dial moved in RuneLite's own settings screen reaches the panel.
+	 *
+	 * <p>The panel writes through {@link ConfigWriter} and redraws itself, so this handler
+	 * exists for the other direction only — and without it the panel would sit showing the
+	 * previous figure under the current one's name for as long as it stayed open.
+	 */
+	@Test
+	public void aSettingChangedElsewhereRedrawsThePanel()
+	{
+		EntouragePlugin plugin = plugin(scene());
+
+		plugin.onConfigChanged(configChanged(EntourageConfig.GROUP));
+
+		assertEquals(1, sidebar.refreshCount());
+	}
+
+	/**
+	 * And a setting belonging to some other plugin does not.
+	 *
+	 * <p>{@code ConfigChanged} fires for every setting in the client, including one per
+	 * keystroke in somebody else's text field, so an unfiltered handler is a Swing panel
+	 * rebuilt a few hundred times for nothing.
+	 */
+	@Test
+	public void somebodyElsesSettingDoesNotRedrawThePanel()
+	{
+		EntouragePlugin plugin = plugin(scene());
+
+		plugin.onConfigChanged(configChanged("runelite"));
+		plugin.onConfigChanged(configChanged("entourage-something-else"));
+
+		assertEquals(0, sidebar.refreshCount());
 	}
 
 	/**

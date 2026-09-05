@@ -13,10 +13,14 @@ import net.runelite.api.events.GameTick;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.ClientToolbar;
+import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.ImageUtil;
 
 /**
  * A cosmetic figure that walks with you and holds a pose when you stop.
@@ -120,6 +124,9 @@ public class EntouragePlugin extends Plugin
 	@Inject
 	EntourageOverlay overlay;
 
+	@Inject
+	SidePanel sidePanel;
+
 	/**
 	 * {@code getGameCycle()} at the last game tick that was processed.
 	 *
@@ -141,6 +148,18 @@ public class EntouragePlugin extends Plugin
 		log.debug("Entourage starting");
 
 		overlayRegistry.add(overlay);
+
+		// The third thing handed to the client that has to be handed back — and the only one
+		// the user can see is missing. Added here rather than lazily so the button appears
+		// the moment the plugin is enabled, which is the only affordance on this plugin that
+		// announces itself.
+		//
+		// Straight from this thread on purpose: PluginManager calls startUp() on the event
+		// dispatch thread, and ClientToolbar.addNavigation posts its own work through
+		// SwingUtilities.invokeLater, so it is safe from any thread and needs no hop of ours.
+		// Nothing here reads the client — that would be the mistake this method cannot make
+		// twice, because a client read off the client thread throws.
+		sidePanel.show();
 
 		// Enabling the plugin mid-session is the common case in dev, and there is no
 		// state change coming to trigger the first pass.
@@ -169,6 +188,11 @@ public class EntouragePlugin extends Plugin
 		// EntouragePluginLifecycleTest pins both against a registry rather than against
 		// this method being read.
 		overlayRegistry.remove(overlay);
+
+		// And the button, for the same reason and a plainer one: a navigation button left in
+		// the toolbar opens a panel that goes on writing settings for a plugin that is not
+		// running, and unlike a leaked overlay the user can see it sitting there.
+		sidePanel.hide();
 
 		// Not blocking: invoke() runs inline on the client thread and defers otherwise.
 		// The count lands in the log either way.
@@ -215,6 +239,33 @@ public class EntouragePlugin extends Plugin
 	public void onGameTick(GameTick event)
 	{
 		tick();
+	}
+
+	/**
+	 * A setting moved: redraw the side panel.
+	 *
+	 * <p><b>This does not contradict the paragraph above about there being no
+	 * {@code ConfigChanged} handler.</b> That paragraph is about the <i>scene</i>, and it
+	 * still holds — nothing here touches {@link EntourageScene}, which goes on re-reading
+	 * every setting at the top of each game tick and noticing a roster swap by comparing it.
+	 * What this handler is for is the one thing a per-tick re-read cannot do: tell a Swing
+	 * panel that the numbers it is drawing are out of date. The panel writes through
+	 * {@link ConfigWriter} and redraws itself, so the case this exists for is the other
+	 * direction — a dial moved in RuneLite's own settings screen, or a profile switched
+	 * underneath both.
+	 *
+	 * <p>Filtered to this plugin's own group, because this event fires for every setting in
+	 * the client and a redraw per keystroke in somebody else's plugin is a panel rebuilt a
+	 * few hundred times for nothing.
+	 */
+	@Subscribe
+	public void onConfigChanged(ConfigChanged event)
+	{
+		if (EntourageConfig.GROUP.equals(event.getGroup()))
+		{
+			// The hop to the event dispatch thread is the panel's own — see SidePanel.
+			sidePanel.refresh();
+		}
 	}
 
 	/**
@@ -289,6 +340,73 @@ public class EntouragePlugin extends Plugin
 	EntourageConfig provideConfig(ConfigManager configManager)
 	{
 		return configManager.getConfig(EntourageConfig.class);
+	}
+
+	/**
+	 * The plugin's only write path into its own settings — see {@link ConfigWriter}.
+	 *
+	 * <p>This method is the whole reason that interface exists: {@code ConfigManager}'s
+	 * constructor is private, so anything taking one directly would be a class no test could
+	 * construct. Behind this one lambda, everything that decides <i>what</i> to write is
+	 * testable against a map.
+	 */
+	@Provides
+	ConfigWriter provideConfigWriter(ConfigManager configManager)
+	{
+		return (key, value) ->
+		{
+			if (value == null)
+			{
+				configManager.unsetConfiguration(EntourageConfig.GROUP, key);
+			}
+			else
+			{
+				configManager.setConfiguration(EntourageConfig.GROUP, key, value);
+			}
+		};
+	}
+
+	/**
+	 * The roster panel's place in the sidebar — see {@link SidePanel}.
+	 *
+	 * <p><b>The button is built once and added and removed, rather than rebuilt on every
+	 * toggle.</b> {@code ClientToolbar} keys its navigation off the button instance, so a
+	 * second one built on the way back in would leave the first behind — a plugin disabled
+	 * and re-enabled five times would leave five buttons in the toolbar, four of them dead.
+	 *
+	 * <p>The priority puts it below RuneLite's own panels rather than above them; this is a
+	 * cosmetic plugin and it should not outrank the config screen.
+	 */
+	@Provides
+	SidePanel provideSidePanel(ClientToolbar clientToolbar, EntourageRosterPanel panel)
+	{
+		final NavigationButton button = NavigationButton.builder()
+			.tooltip("Entourage — who walks with you")
+			.icon(ImageUtil.loadImageResource(EntourageRosterPanel.class, "panel_icon.png"))
+			.priority(7)
+			.panel(panel)
+			.build();
+
+		return new SidePanel()
+		{
+			@Override
+			public void show()
+			{
+				clientToolbar.addNavigation(button);
+			}
+
+			@Override
+			public void hide()
+			{
+				clientToolbar.removeNavigation(button);
+			}
+
+			@Override
+			public void refresh()
+			{
+				panel.refresh();
+			}
+		};
 	}
 
 	/**
