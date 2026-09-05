@@ -441,6 +441,29 @@ public class EntourageRosterPanelTest
 		assertTrue(shows(panel, "in this slot"));
 	}
 
+	/**
+	 * <b>A typed id is what is in the slot, not its fallback figure.</b> The card above the
+	 * list already says "Wearing NPC 4931"; if the fallback in the list underneath also
+	 * claimed "in this slot" the two would contradict each other on the same screen. The
+	 * fixture above this one has no custom id set, so {@code !slot.isCustom()} never runs
+	 * and a mutation that deleted it would have passed unnoticed.
+	 */
+	@Test
+	public void thePickerDoesNotMarkTheFallbackFigureWhileATypedIdIsInForce()
+	{
+		config.setFigure(EntourageFigure.PIRATE).setCustomNpcId(4931);
+		EntourageRosterPanel panel = panel();
+
+		clickCard(panel, "NPC 4931");
+
+		assertTrue("the card still says which id is actually in the slot",
+			shows(panel, "Wearing NPC 4931"));
+		assertTrue("the fallback figure is still offered in the list",
+			shows(panel, "Pirate"));
+		assertFalse("but it is not what is in the slot — the typed id is",
+			shows(panel, "in this slot"));
+	}
+
 	@Test
 	public void thereIsAWayBackWithoutChoosingAnybody()
 	{
