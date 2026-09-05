@@ -248,7 +248,7 @@ final class EntourageSettings
 	 * reference to compare next tick's roster against, so a list a caller could edit
 	 * would be a roster change that never got noticed.
 	 */
-	private final List<EntourageFigure> figures;
+	private final List<FollowerBody> bodies;
 
 	private final int followDistance;
 	private final int recallDistance;
@@ -262,12 +262,12 @@ final class EntourageSettings
 	private final int dialogueDwellTicks;
 	private final List<String> customLines;
 
-	private EntourageSettings(List<EntourageFigure> figures, int followDistance, int recallDistance,
+	private EntourageSettings(List<FollowerBody> bodies, int followDistance, int recallDistance,
 		EntourageFormation formation, FollowerFacing facing, boolean canRun,
 		EntouragePose idlePose, boolean hideInInstances, boolean dialogue,
 		int dialogueIntervalTicks, int dialogueDwellTicks, List<String> customLines)
 	{
-		this.figures = figures;
+		this.bodies = bodies;
 		this.followDistance = followDistance;
 		this.recallDistance = recallDistance;
 		this.formation = formation;
@@ -297,7 +297,7 @@ final class EntourageSettings
 		EntouragePose pose = config.idlePose();
 
 		return new EntourageSettings(
-			readFigures(config),
+			readBodies(config),
 			clamp(config.followDistance(), MIN_FOLLOW_DISTANCE, MAX_FOLLOW_DISTANCE),
 			clamp(config.recallDistance(), MIN_RECALL_DISTANCE, MAX_RECALL_DISTANCE),
 			formation == null ? EntourageFormation.DEFAULT : formation,
@@ -312,7 +312,7 @@ final class EntourageSettings
 	}
 
 	/**
-	 * The roster, read out of the five figure slots.
+	 * The roster, read out of the five figure slots and the custom-id box.
 	 *
 	 * <p><b>The count decides how many of the five are read, and the ones past it are not
 	 * read at all.</b> A slot the user has turned off is a slot whose dropdown still holds
@@ -320,19 +320,32 @@ final class EntourageSettings
 	 * "who" have to be separate questions, and the count is the one that answers whether a
 	 * figure is in the entourage.
 	 *
-	 * @return the figures, in roster order, unmodifiable and never empty
+	 * <p><b>The custom id applies to slot 0 and nothing else</b> — see
+	 * {@link EntourageConfig}'s javadoc on why there is one of these rather than five. The
+	 * figure that slot's dropdown names is carried along anyway, as the fallback the
+	 * follower reverts to if the id turns out not to animate.
+	 *
+	 * @return the bodies, in roster order, unmodifiable and never empty
 	 */
-	private static List<EntourageFigure> readFigures(EntourageConfig config)
+	private static List<FollowerBody> readBodies(EntourageConfig config)
 	{
 		int followers = clamp(config.followers(), MIN_FOLLOWERS, MAX_FOLLOWERS);
 
-		List<EntourageFigure> figures = new ArrayList<>(followers);
+		// Read raw and handed straight to FollowerBody.custom, which is where a typed id is
+		// floored and where the reasoning about its bounds lives. A second clamp here would
+		// be the same rule twice, and neither copy could then be broken by itself.
+		int customNpcId = config.customNpcId();
+
+		List<FollowerBody> bodies = new ArrayList<>(followers);
 		for (int index = 0; index < followers; index++)
 		{
-			figures.add(figureAt(config, index));
+			EntourageFigure figure = figureAt(config, index);
+			bodies.add(index == 0
+				? FollowerBody.custom(customNpcId, figure)
+				: FollowerBody.preset(figure));
 		}
 
-		return Collections.unmodifiableList(figures);
+		return Collections.unmodifiableList(bodies);
 	}
 
 	/**
@@ -468,15 +481,15 @@ final class EntourageSettings
 	 * @return whose body each follower wears, in roster order. Never empty, never longer
 	 * than {@link #MAX_FOLLOWERS}, and unmodifiable.
 	 */
-	List<EntourageFigure> getFigures()
+	List<FollowerBody> getBodies()
 	{
-		return figures;
+		return bodies;
 	}
 
 	/** @return how many followers there are, 1..{@link #MAX_FOLLOWERS} */
 	int getRosterSize()
 	{
-		return figures.size();
+		return bodies.size();
 	}
 
 	/** @return how many tiles out the formation slot sits, 1..2 */

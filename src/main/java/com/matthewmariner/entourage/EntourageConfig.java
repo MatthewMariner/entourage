@@ -48,8 +48,17 @@ import net.runelite.client.config.Range;
  *       animation slot is never advanced for a {@code RuneLiteObject}, so a walk parked
  *       in it would freeze on its first frame.</li>
  *   <li><b>Anything about the player's own gear.</b> Dressing the follower in what you
- *       are wearing needs a cache decoder that does not exist yet; a setting for it now
- *       would be a switch wired to nothing.</li>
+ *       are wearing needs turning kit and equipment ids into model ids, which is the
+ *       client's own item resolution reproduced — see {@link FollowerAppearance}. There
+ *       <i>is</i> a cache decoder in the plugin now ({@link NpcRecord}), and it is
+ *       deliberately no help here: it reads four animation ids out of one NPC record and
+ *       knows nothing about items.</li>
+ *   <li><b>Five custom NPC ids.</b> {@link #customNpcId()} replaces the first slot and
+ *       only the first, because the first is the one that always exists — the roster
+ *       starts at one — and because five more numbered boxes would double the roster
+ *       section to describe something four of the dropdowns already do. Mixing one typed
+ *       id with four presets is the case that was asked for; five typed ids is a second
+ *       feature, and it can be five keys beside this one whenever anybody wants it.</li>
  * </ul>
  */
 @ConfigGroup(EntourageConfig.GROUP)
@@ -186,6 +195,25 @@ public interface EntourageConfig extends Config
 	default EntourageFigure figure5()
 	{
 		return EntourageFigure.defaultAt(4);
+	}
+
+	@ConfigItem(
+		keyName = "customNpcId",
+		name = "Custom NPC id",
+		description = "Puts any NPC in the first slot instead of whatever \"Figure 1\" says — type its "
+			+ "id and leave the rest alone. Zero means \"use the dropdown\", which is where it starts. "
+			+ "Unlike the presets, an arbitrary NPC has to be checked before it can be used: the "
+			+ "plugin reads that NPC's own stand and walk animations out of the game's cache, and if "
+			+ "it has none, or walks with the same animation it stands with, the id is refused and the "
+			+ "dropdown figure comes back. Non-human bodies are allowed and may look odd. Changing "
+			+ "this rebuilds the entourage on the next game tick.",
+		position = 7,
+		section = rosterSection
+	)
+	@Range(min = FollowerBody.NO_CUSTOM_NPC)
+	default int customNpcId()
+	{
+		return FollowerBody.NO_CUSTOM_NPC;
 	}
 
 	// --- Movement ------------------------------------------------------------

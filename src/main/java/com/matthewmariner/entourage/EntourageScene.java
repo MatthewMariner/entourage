@@ -63,10 +63,10 @@ class EntourageScene
 	private final EntourageChatter chatter = new EntourageChatter();
 
 	/**
-	 * The figures {@link #followers} was built for, in order, or {@code null} when there
+	 * The bodies {@link #followers} was built for, in order, or {@code null} when there
 	 * is no roster.
 	 *
-	 * <p>Kept separately from the followers' own figures so that a retirement which could
+	 * <p>Kept separately from the followers' own bodies so that a retirement which could
 	 * not let go of its objects — see {@link #retire()} — does not turn into a rebuild
 	 * attempt on every subsequent tick, and one warning per tick with it.
 	 *
@@ -74,10 +74,13 @@ class EntourageScene
 	 * changes, when the count changes, and when two figures swap places — all three are a
 	 * different set of bodies in a different order, and all three need the same rebuild.
 	 * A comparison that only watched the count would leave the wrong figures on screen;
-	 * one that only watched the first slot would leave four of them.
+	 * one that only watched the first slot would leave four of them. It is also what
+	 * makes a change of {@link EntourageConfig#customNpcId()} a rebuild:
+	 * {@link FollowerBody} has value equality precisely so that the typed id is part of
+	 * this comparison rather than a second thing to remember to check.
 	 */
 	@Nullable
-	private List<EntourageFigure> rosterFigures;
+	private List<FollowerBody> rosterBodies;
 
 	/**
 	 * The last resolution reported, so the log says "the anchor went away" once rather
@@ -145,7 +148,7 @@ class EntourageScene
 				// caught: a follower that throws every tick would otherwise be a warning
 				// every tick, forever.
 				log.warn("{}: threw during the tick pass, not retrying",
-					follower.getFigure().label(), e);
+					follower.label(), e);
 				follower.markBroken();
 				follower.despawn();
 			}
@@ -180,7 +183,7 @@ class EntourageScene
 			catch (RuntimeException e)
 			{
 				log.warn("{}: threw during the frame pass, not retrying",
-					follower.getFigure().label(), e);
+					follower.label(), e);
 				follower.markBroken();
 				follower.despawn();
 			}
@@ -257,7 +260,7 @@ class EntourageScene
 		int deactivated = despawnAll();
 
 		followers.removeIf(follower -> !stillRegistered(follower));
-		rosterFigures = null;
+		rosterBodies = null;
 
 		if (!followers.isEmpty())
 		{
@@ -283,7 +286,7 @@ class EntourageScene
 		catch (RuntimeException e)
 		{
 			log.warn("{}: threw when asked whether it is still registered",
-				follower.getFigure().label(), e);
+				follower.label(), e);
 			return true;
 		}
 	}
@@ -321,29 +324,29 @@ class EntourageScene
 	 */
 	private List<Follower> roster(EntourageSettings settings)
 	{
-		List<EntourageFigure> figures = settings.getFigures();
+		List<FollowerBody> bodies = settings.getBodies();
 
-		if (rosterFigures != null && !rosterFigures.equals(figures))
+		if (rosterBodies != null && !rosterBodies.equals(bodies))
 		{
-			log.debug("roster changed from {} to {}, retiring it", rosterFigures, figures);
+			log.debug("roster changed from {} to {}, retiring it", rosterBodies, bodies);
 			retire();
 		}
 
 		if (followers.isEmpty())
 		{
-			for (int index = 0; index < figures.size(); index++)
+			for (int index = 0; index < bodies.size(); index++)
 			{
 				// The starting tile is a placeholder: a follower that is not active places
 				// itself on the anchor before it spawns, every tick, so this is only ever
 				// the value held for the few microseconds before that happens.
-				followers.add(new Follower(client, figures.get(index), index,
+				followers.add(new Follower(client, bodies.get(index), index,
 					new WorldPoint(0, 0, 0)));
 			}
 
 			// The list out of EntourageSettings is unmodifiable, so keeping the reference
 			// is keeping a snapshot rather than aliasing something that can change.
-			rosterFigures = figures;
-			log.debug("roster is {} follower(s): {}", followers.size(), figures);
+			rosterBodies = bodies;
+			log.debug("roster is {} follower(s): {}", followers.size(), bodies);
 		}
 
 		return followers;

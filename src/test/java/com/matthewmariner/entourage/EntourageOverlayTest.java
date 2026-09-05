@@ -139,6 +139,28 @@ public class EntourageOverlayTest
 	}
 
 	/**
+	 * <b>A typed NPC id is named after that NPC.</b> The name label is the only
+	 * confirmation the custom-id feature has that a user can see without opening a log —
+	 * the NPC's own name over the figure means the id took, and the dropdown figure's name
+	 * means it was refused.
+	 */
+	@Test
+	public void theNameLabelOfACustomBodyIsTheNpcsOwnName()
+	{
+		client.withNpc(4931, FakeNpcComposition.of("Cave goblin guard", 60_001))
+			.withIndexConfig(new FakeIndexDataBase()
+				.withNpc(4931, NpcRecordBytes.record().standing(5101).walking(5102).end()));
+		config.setCustomNpcId(4931).setDialogue(false).setNameLabel(true);
+		spawn();
+
+		RecordingOverlay overlay = new RecordingOverlay();
+		overlay.render(graphics);
+
+		assertEquals(1, overlay.drawn.size());
+		assertEquals("Cave goblin guard", overlay.drawn.get(0));
+	}
+
+	/**
 	 * <b>The loop walks the whole roster, not the first of it.</b> Until there were five
 	 * followers this was unfalsifiable: with one on screen, a render that drew
 	 * {@code followers.get(0)} and returned is indistinguishable from one that iterates.

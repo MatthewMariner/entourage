@@ -61,7 +61,7 @@ public class FollowerTest
 
 	private Follower follower()
 	{
-		return new Follower(client, EntourageFigure.ROGUE, 0, ANCHOR);
+		return new Follower(client, FollowerBody.preset(EntourageFigure.ROGUE), 0, ANCHOR);
 	}
 
 	/**
@@ -123,7 +123,7 @@ public class FollowerTest
 	 */
 	private Follower settled(EntourageFigure figure, EntourageSettings settings)
 	{
-		Follower follower = new Follower(client, figure, 0, ANCHOR);
+		Follower follower = new Follower(client, FollowerBody.preset(figure), 0, ANCHOR);
 		follower.onGameTick(at(ANCHOR), view, settings);
 		follower.onGameTick(at(ANCHOR), view, settings);
 		follower.onGameTick(at(PLAYER), view, settings);
@@ -845,7 +845,7 @@ public class FollowerTest
 		WorldPoint upstairs = new WorldPoint(ANCHOR.getX(), ANCHOR.getY(), 2);
 		FakeWorldView upstairsView = FakeWorldView.around(upstairs);
 		client.setTopLevelWorldView(upstairsView);
-		Follower follower = new Follower(client, EntourageFigure.ROGUE, 0, upstairs);
+		Follower follower = new Follower(client, FollowerBody.preset(EntourageFigure.ROGUE), 0, upstairs);
 
 		follower.onGameTick(at(upstairs, upstairsView), upstairsView, walkOnly());
 

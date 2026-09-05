@@ -228,6 +228,58 @@ public class EntourageSceneTest
 	}
 
 	/**
+	 * <b>A typed NPC id is part of the roster, and changing it is the same rebuild.</b>
+	 * The scene notices a settings change by comparing this tick's list of bodies against
+	 * the one the followers were built for, and {@link FollowerBody} has value equality
+	 * for exactly this reason — a comparison that only looked at the five dropdowns would
+	 * leave the old NPC walking about after the box was retyped.
+	 */
+	@Test
+	public void changingTheCustomNpcIdRebuildsTheRosterWithoutLeakingTheOldFigure()
+	{
+		client.withNpc(4931, FakeNpcComposition.of("First", 60_001))
+			.withNpc(4932, FakeNpcComposition.of("Second", 60_002))
+			.withIndexConfig(new FakeIndexDataBase()
+				.withNpc(4931, NpcRecordBytes.record().standing(5101).walking(5102).end())
+				.withNpc(4932, NpcRecordBytes.record().standing(5201).walking(5202).end()));
+
+		config.setCustomNpcId(4931);
+		EntourageScene scene = scene();
+		scene.onGameTick();
+		Follower first = scene.getFollowers().get(0);
+		assertEquals(ROSTER_SIZE, client.registeredCount());
+		assertTrue(client.npcDefinitionsRequested().contains(4931));
+
+		config.setCustomNpcId(4932);
+		scene.onGameTick();
+
+		assertEquals("still exactly one figure on screen", ROSTER_SIZE, client.registeredCount());
+		assertNotEquals("and it really was rebuilt", first, scene.getFollowers().get(0));
+		assertTrue("wearing the new id", client.npcDefinitionsRequested().contains(4932));
+	}
+
+	/** Clearing the box puts the dropdown figure back, and takes the NPC off the screen. */
+	@Test
+	public void clearingTheCustomNpcIdPutsTheDropdownFigureBack()
+	{
+		client.withNpc(4931, FakeNpcComposition.of("First", 60_001))
+			.withIndexConfig(new FakeIndexDataBase()
+				.withNpc(4931, NpcRecordBytes.record().standing(5101).walking(5102).end()));
+
+		config.setCustomNpcId(4931);
+		EntourageScene scene = scene();
+		scene.onGameTick();
+
+		config.setCustomNpcId(0);
+		scene.onGameTick();
+
+		assertEquals(ROSTER_SIZE, client.registeredCount());
+		assertFalse("the typed id is no longer worn",
+			scene.getFollowers().get(0).getBody().isCustom());
+		assertTrue(client.npcDefinitionsRequested().contains(EntourageFigure.ROGUE.getNpcId()));
+	}
+
+	/**
 	 * <b>The same two figures in the other order is a different roster.</b> A follower's
 	 * index decides which station of the formation it stands on, so swapping two slots has
 	 * to move the bodies — and a comparison that only counted, or only looked at the set of

@@ -26,6 +26,7 @@ final class FakeConfig implements EntourageConfig
 	private EntourageFigure figure3 = EntourageConfig.super.figure3();
 	private EntourageFigure figure4 = EntourageConfig.super.figure4();
 	private EntourageFigure figure5 = EntourageConfig.super.figure5();
+	private int customNpcId = EntourageConfig.super.customNpcId();
 	private int followDistance = EntourageConfig.super.followDistance();
 	private EntourageFormation formation = EntourageConfig.super.formation();
 	private FollowerFacing facing = EntourageConfig.super.facing();
@@ -56,6 +57,13 @@ final class FakeConfig implements EntourageConfig
 	FakeConfig setFigure(EntourageFigure figure)
 	{
 		this.figure = figure;
+		return this;
+	}
+
+	/** @param customNpcId the id typed into the box, or zero to use the dropdown */
+	FakeConfig setCustomNpcId(int customNpcId)
+	{
+		this.customNpcId = customNpcId;
 		return this;
 	}
 
@@ -225,6 +233,12 @@ final class FakeConfig implements EntourageConfig
 	public EntourageFigure figure5()
 	{
 		return figure5;
+	}
+
+	@Override
+	public int customNpcId()
+	{
+		return customNpcId;
 	}
 
 	@Override

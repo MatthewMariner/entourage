@@ -41,7 +41,7 @@ public class EntourageSettingsTest
 			.setDialogueDwellTicks(11)
 			.settings();
 
-		assertEquals(Collections.singletonList(EntourageFigure.VANNAKA), settings.getFigures());
+		assertEquals(presets(EntourageFigure.VANNAKA), settings.getBodies());
 		assertEquals(2, settings.getFollowDistance());
 		assertSame(EntourageFormation.LEFT, settings.getFormation());
 		assertSame(FollowerFacing.SOUTH_WEST, settings.getFacing());
@@ -86,9 +86,9 @@ public class EntourageSettingsTest
 				EntourageFigure.TURAEL, EntourageFigure.GHOMMAL)
 			.settings();
 
-		assertEquals(Arrays.asList(EntourageFigure.VANNAKA, EntourageFigure.HANS,
+		assertEquals(presets(EntourageFigure.VANNAKA, EntourageFigure.HANS,
 			EntourageFigure.PIRATE, EntourageFigure.TURAEL, EntourageFigure.GHOMMAL),
-			settings.getFigures());
+			settings.getBodies());
 		assertEquals(EntourageSettings.MAX_FOLLOWERS, settings.getRosterSize());
 	}
 
@@ -107,10 +107,10 @@ public class EntourageSettingsTest
 			.setFigureAt(4, EntourageFigure.GHOMMAL)
 			.settings();
 
-		assertEquals(Arrays.asList(EntourageFigure.VANNAKA, EntourageFigure.HANS),
-			settings.getFigures());
+		assertEquals(presets(EntourageFigure.VANNAKA, EntourageFigure.HANS),
+			settings.getBodies());
 		assertFalse("a figure past the count is not in the entourage",
-			settings.getFigures().contains(EntourageFigure.PIRATE));
+			settings.getBodies().contains(FollowerBody.preset(EntourageFigure.PIRATE)));
 	}
 
 	/** The same figure five times is a legal roster, and it is five followers. */
@@ -123,7 +123,8 @@ public class EntourageSettingsTest
 			.settings();
 
 		assertEquals(5, settings.getRosterSize());
-		assertEquals(Collections.nCopies(5, EntourageFigure.ROGUE), settings.getFigures());
+		assertEquals(Collections.nCopies(5, FollowerBody.preset(EntourageFigure.ROGUE)),
+			settings.getBodies());
 	}
 
 	@Test
@@ -158,7 +159,7 @@ public class EntourageSettingsTest
 	{
 		try
 		{
-			FakeConfig.defaults().getFigures().add(EntourageFigure.HANS);
+			FakeConfig.defaults().getBodies().add(FollowerBody.preset(EntourageFigure.HANS));
 			fail("a snapshot a caller can edit is not a snapshot");
 		}
 		catch (UnsupportedOperationException expected)
@@ -184,10 +185,10 @@ public class EntourageSettingsTest
 			.setFigureAt(4, null)
 			.settings();
 
-		assertEquals(Arrays.asList(
+		assertEquals(presets(
 			EntourageFigure.defaultAt(0), EntourageFigure.defaultAt(1),
 			EntourageFigure.defaultAt(2), EntourageFigure.defaultAt(3),
-			EntourageFigure.defaultAt(4)), settings.getFigures());
+			EntourageFigure.defaultAt(4)), settings.getBodies());
 	}
 
 	// --- The dialogue cadence -------------------------------------------------
@@ -460,7 +461,7 @@ public class EntourageSettingsTest
 			.setDialogueLines(null)
 			.settings();
 
-		assertEquals(Collections.singletonList(EntourageFigure.DEFAULT), settings.getFigures());
+		assertEquals(presets(EntourageFigure.DEFAULT), settings.getBodies());
 		assertSame(EntourageFormation.DEFAULT, settings.getFormation());
 		assertSame(FollowerFacing.AT_ME, settings.getFacing());
 		assertSame(EntouragePose.FIGURE_DEFAULT, settings.getIdlePose());
@@ -476,7 +477,7 @@ public class EntourageSettingsTest
 		EntourageSettings settings = FakeConfig.defaults();
 
 		assertEquals("a fresh install still walks one Rogue, exactly as it always did",
-			Collections.singletonList(EntourageFigure.ROGUE), settings.getFigures());
+			presets(EntourageFigure.ROGUE), settings.getBodies());
 		assertEquals(EntourageSettings.DEFAULT_FOLLOWERS, settings.getRosterSize());
 		assertEquals(EntourageSettings.DEFAULT_FOLLOW_DISTANCE, settings.getFollowDistance());
 		assertEquals(EntourageSettings.DEFAULT_RECALL_DISTANCE, settings.getRecallDistance());
@@ -492,5 +493,107 @@ public class EntourageSettingsTest
 		assertEquals(EntourageSettings.DEFAULT_DIALOGUE_DWELL_TICKS,
 			settings.getDialogueDwellTicks());
 		assertTrue(settings.getCustomLines().isEmpty());
+	}
+	// --- The custom NPC id ----------------------------------------------------
+
+	/**
+	 * The typed id replaces the first slot's body and leaves the other four alone — see
+	 * {@link EntourageConfig}'s javadoc on why there is one of these rather than five.
+	 */
+	@Test
+	public void aCustomIdReplacesTheFirstSlotAndNothingElse()
+	{
+		EntourageSettings settings = new FakeConfig()
+			.setRoster(EntourageFigure.VANNAKA, EntourageFigure.HANS, EntourageFigure.PIRATE)
+			.setCustomNpcId(4931)
+			.settings();
+
+		assertEquals(Arrays.asList(
+			FollowerBody.custom(4931, EntourageFigure.VANNAKA),
+			FollowerBody.preset(EntourageFigure.HANS),
+			FollowerBody.preset(EntourageFigure.PIRATE)), settings.getBodies());
+	}
+
+	/** The first slot's dropdown is still read: it is what the id falls back to. */
+	@Test
+	public void aCustomIdKeepsTheFirstSlotsDropdownAsItsFallback()
+	{
+		EntourageSettings settings = new FakeConfig()
+			.setFigure(EntourageFigure.HANS)
+			.setCustomNpcId(4931)
+			.settings();
+
+		assertSame(EntourageFigure.HANS, settings.getBodies().get(0).getFigure());
+		assertEquals(4931, settings.getBodies().get(0).getNpcId());
+	}
+
+	@Test
+	public void anEmptyCustomIdLeavesTheRosterExactlyAsItWas()
+	{
+		assertEquals(presets(EntourageFigure.ROGUE),
+			new FakeConfig().setCustomNpcId(0).settings().getBodies());
+	}
+
+	/**
+	 * {@code @Range} bounds the spinner and nothing else, so a hand-edited profile can
+	 * hold a negative id. Floored rather than refused, because zero already means "use the
+	 * dropdown" and that is the right answer for a number that is not a file id.
+	 */
+	@Test
+	public void aNegativeCustomIdIsFlooredToNoCustomNpcAtAll()
+	{
+		EntourageSettings settings = new FakeConfig().setCustomNpcId(-7).settings();
+
+		assertFalse(settings.getBodies().get(0).isCustom());
+		assertEquals(presets(EntourageFigure.ROGUE), settings.getBodies());
+	}
+
+	/**
+	 * <b>Deliberately no ceiling.</b> The NPC archive's highest file id moves with every
+	 * game update, and {@code NpcArchive} asks the archive itself — a number written into
+	 * this class would be a false refusal for every NPC added after it was written.
+	 */
+	@Test
+	public void aLargeCustomIdIsNotCappedHere()
+	{
+		assertEquals(9_999_999,
+			new FakeConfig().setCustomNpcId(9_999_999).settings().getBodies().get(0).getNpcId());
+	}
+
+	/**
+	 * The roster is compared by value to decide whether the followers have to be rebuilt,
+	 * so a changed id has to make a different roster. Without it the follower would go on
+	 * wearing the old NPC until something else forced a rebuild.
+	 */
+	@Test
+	public void changingTheCustomIdChangesTheRoster()
+	{
+		assertNotEquals(
+			new FakeConfig().setCustomNpcId(4931).settings().getBodies(),
+			new FakeConfig().setCustomNpcId(4932).settings().getBodies());
+	}
+
+	@Test
+	public void theShippedDefaultIsNoCustomNpc()
+	{
+		// FakeConfig's field is initialised from the interface default, so this is that
+		// default pinned to a literal rather than to itself.
+		assertEquals(0, new FakeConfig().customNpcId());
+		assertFalse(FakeConfig.defaults().getBodies().get(0).isCustom());
+	}
+
+	/**
+	 * @param figures the roster, in order
+	 * @return the same roster as {@link FollowerBody}s with no custom id on any of them,
+	 * which is what every settings snapshot holds until somebody types one
+	 */
+	private static java.util.List<FollowerBody> presets(EntourageFigure... figures)
+	{
+		java.util.List<FollowerBody> bodies = new java.util.ArrayList<>(figures.length);
+		for (EntourageFigure figure : figures)
+		{
+			bodies.add(FollowerBody.preset(figure));
+		}
+		return bodies;
 	}
 }

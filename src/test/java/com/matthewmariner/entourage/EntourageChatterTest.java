@@ -45,7 +45,7 @@ public class EntourageChatterTest
 	/** The same, in a named roster position — which is what staggers whose turn it is. */
 	private Follower spawned(EntourageFigure figure, int index)
 	{
-		Follower follower = new Follower(client, figure, index, STANDING);
+		Follower follower = new Follower(client, FollowerBody.preset(figure), index, STANDING);
 		FollowerAnchor anchor = FollowerAnchor.of(FakePlayer.standingOn(view, STANDING), view);
 		follower.onGameTick(anchor, view, FakeConfig.defaults());
 		assertTrue("the fixture has to actually spawn", follower.isActive());

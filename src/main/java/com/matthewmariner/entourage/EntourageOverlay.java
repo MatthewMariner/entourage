@@ -162,7 +162,7 @@ class EntourageOverlay extends Overlay
 			return;
 		}
 
-		String name = names ? follower.getFigure().getDisplayName() : null;
+		String name = names ? follower.getDisplayName() : null;
 		String line = dialogue ? follower.getRemarks().text() : null;
 
 		if (name != null)

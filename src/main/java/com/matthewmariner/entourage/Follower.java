@@ -132,7 +132,7 @@ final class Follower
 	private static final int WORLD_LIGHT_Z = -30;
 
 	private final Client client;
-	private final EntourageFigure figure;
+	private final FollowerBody body;
 
 	/**
 	 * Which follower of the roster this is, 0-based.
@@ -185,9 +185,33 @@ final class Follower
 	 * {@code AnimationController} will not say which id it was given: it exposes the
 	 * {@code Animation} it resolved, and this plugin has no way to turn one back into a
 	 * sequence id. Only ever read while {@link #idleController} is non-null.
+	 *
+	 * <p>A sequence id rather than an {@link EntourageAnimation}, because a custom body's
+	 * stand is a number out of the cache and has no enum constant naming it.
+	 */
+	private int installedIdleAnimationId;
+
+	/**
+	 * The animations read out of the cache for a custom body, or {@code null} — for a
+	 * preset, for a custom body whose id has not resolved yet, and for one that was
+	 * refused. {@link EntourageFigure}'s own triple is used whenever this is null, which
+	 * makes "wear the preset instead" a single assignment rather than a second code path.
 	 */
 	@Nullable
-	private EntourageAnimation idleAnimation;
+	private NpcRecord customAnimations;
+
+	/**
+	 * True once a typed NPC id has been turned down for good, at which point this follower
+	 * is the preset its slot's dropdown names.
+	 *
+	 * <p><b>Latched, because both reasons for it are permanent.</b> Either the archive
+	 * does not have the id at all, or the id's record declares no usable stand-and-walk
+	 * pair — see {@link NpcRecord#hasWalkCycle()}. Neither changes on the next tick, and
+	 * retrying either would be one warning per tick forever. The retryable case — the
+	 * cache not having answered yet — never reaches here; it goes through the same attempt
+	 * budget as a cold model cache.
+	 */
+	private boolean customRejected;
 
 	/** The controller currently handed to the object, for the identity compare. */
 	private AnimationController installed;
@@ -206,18 +230,74 @@ final class Follower
 	private int attempts;
 	private int ticksSinceAttempt;
 
-	Follower(Client client, EntourageFigure figure, int index, WorldPoint start)
+	Follower(Client client, FollowerBody body, int index, WorldPoint start)
 	{
 		this.client = client;
-		this.figure = figure;
+		this.body = body;
 		this.index = index;
 		this.walk = new FollowerWalk(start);
-		this.remarks = new FollowerRemarks(figure, index);
+		this.remarks = new FollowerRemarks(body.getFigure(), index);
 	}
 
+	/** @return whose body this follower wears — a preset, or an id the user typed */
+	FollowerBody getBody()
+	{
+		return body;
+	}
+
+	/**
+	 * @return the preset behind this follower: the figure itself for a preset body, and
+	 * the fallback for a custom one. What it says and what it falls back to both come from
+	 * here, so a custom follower still has lines and still has a stand to hold.
+	 */
 	EntourageFigure getFigure()
 	{
-		return figure;
+		return body.getFigure();
+	}
+
+	/**
+	 * @return what this follower is called in a log line. Follows the body it is actually
+	 * wearing: a custom id that was refused says the preset's name from then on, because
+	 * that is what is standing there.
+	 */
+	String label()
+	{
+		return customRejected ? body.getFigure().label() : body.label();
+	}
+
+	/**
+	 * @return the NPC this follower is dressed from: the typed id while it is still in
+	 * play, and the slot's own preset once that id has been refused. Read after
+	 * {@link #resolveBody()}, which is what makes the second answer possible.
+	 */
+	private int npcId()
+	{
+		return customRejected ? body.getFigure().getNpcId() : body.getNpcId();
+	}
+
+	/**
+	 * @return what to draw over this follower's head when the name label is switched on.
+	 *
+	 * <p><b>A custom body answers with the NPC's own name, and that is the one visible
+	 * confirmation the feature has.</b> A typed id that worked puts that NPC's name over
+	 * the figure; one that was refused puts the dropdown figure's name there instead, so
+	 * "did my id take?" is answerable without opening a log. The composition's name is
+	 * used only when it is a real one — the cache's own placeholder for an unnamed NPC is
+	 * the four characters {@code null}, and a follower labelled "null" would read as a bug
+	 * rather than as an unnamed body.
+	 */
+	String getDisplayName()
+	{
+		if (body.isCustom() && !customRejected && appearance != null)
+		{
+			String npcName = appearance.getNpcName();
+			if (npcName != null && !npcName.isEmpty() && !"null".equals(npcName))
+			{
+				return npcName;
+			}
+		}
+
+		return body.getFigure().getDisplayName();
 	}
 
 	/** @return which follower of the roster this is, 0-based */
@@ -291,7 +371,7 @@ final class Follower
 			// the pass — including anything that was supposed to deactivate — and does
 			// it again next tick, because nothing would have marked the offender.
 			broken = true;
-			log.warn("{}: threw while spawning, not retrying", figure.label(), e);
+			log.warn("{}: threw while spawning, not retrying", label(), e);
 			return false;
 		}
 	}
@@ -319,7 +399,7 @@ final class Follower
 			// it — impossible rather than merely brief.
 			remarks.clear();
 
-			log.debug("despawned {}", figure.label());
+			log.debug("despawned {}", label());
 			return true;
 		}
 		catch (RuntimeException e)
@@ -327,7 +407,7 @@ final class Follower
 			// Same reasoning as spawn(), and the stakes are higher: this runs from the
 			// teardown loop that must reach every other follower.
 			broken = true;
-			log.warn("{}: threw while despawning", figure.label(), e);
+			log.warn("{}: threw while despawning", label(), e);
 			return false;
 		}
 	}
@@ -526,7 +606,7 @@ final class Follower
 			object = client.createRuneLiteObject();
 			if (object == null)
 			{
-				log.warn("{}: client refused to create a RuneLiteObject", figure.label());
+				log.warn("{}: client refused to create a RuneLiteObject", label());
 				broken = true;
 				return false;
 			}
@@ -534,6 +614,13 @@ final class Follower
 
 		if (model == null)
 		{
+			if (!resolveBody())
+			{
+				// A custom id the cache has not answered for yet. Transient: nothing
+				// latched, and nothing dressed from an id that may still be refused.
+				return false;
+			}
+
 			List<ModelData> parts = loadParts();
 			if (parts == null)
 			{
@@ -561,13 +648,13 @@ final class Follower
 			// The client took the call and still does not have the object. That is not
 			// going to change next tick, and leaving it unlatched is one warning per
 			// tick forever.
-			log.warn("{}: setActive(true) did not take, not retrying", figure.label());
+			log.warn("{}: setActive(true) did not take, not retrying", label());
 			broken = true;
 			return false;
 		}
 
 		positionSettled = false;
-		log.debug("spawned {} at {}", figure.label(), walk.currentTile());
+		log.debug("spawned {} at {}", label(), walk.currentTile());
 		return true;
 	}
 
@@ -610,28 +697,66 @@ final class Follower
 	@Nullable
 	private AnimationController idleControllerOrNull(EntourageSettings settings)
 	{
-		EntourageAnimation wanted = settings.getIdlePose().animationFor(figure);
+		int wanted = idleAnimationId(settings);
 
-		if (idleController != null && wanted != idleAnimation)
+		if (idleController != null && wanted != installedIdleAnimationId)
 		{
 			// The pose changed under a follower that is already standing there. Dropping
 			// the controller is the whole cost: the model, the object and the retry
 			// budget are all untouched.
 			idleController = null;
-			idleAnimation = null;
 		}
 
 		if (idleController == null)
 		{
-			idleController = looping(wanted);
+			idleController = looping(wanted, "idle");
 			// Unconditional, including when the load missed. It is only ever read
 			// alongside a non-null controller — the reset above is guarded on one — so
 			// "remember nothing on a miss" would be a branch no test could tell from this
 			// line, and a cold-cache miss is retried either way by the null controller.
-			idleAnimation = wanted;
+			installedIdleAnimationId = wanted;
 		}
 
 		return idleController;
+	}
+
+	/**
+	 * @param settings this tick's configuration, for the pose
+	 * @return the sequence to hold while standing still: whatever {@link EntouragePose}
+	 * names, or — for {@link EntouragePose#FIGURE_DEFAULT} — the body's own stand, which
+	 * is the preset's for a preset and the cache's for a custom id
+	 */
+	private int idleAnimationId(EntourageSettings settings)
+	{
+		EntourageAnimation pose = settings.getIdlePose().getAnimation();
+		if (pose != null)
+		{
+			return pose.getId();
+		}
+
+		return customAnimations == null
+			? body.getFigure().getIdleAnimation().getId()
+			: customAnimations.getStandingAnimation();
+	}
+
+	/** @return the sequence to play while covering one tile in a game tick */
+	private int walkAnimationId()
+	{
+		return customAnimations == null
+			? body.getFigure().getWalkAnimation().getId()
+			: customAnimations.getWalkingAnimation();
+	}
+
+	/**
+	 * @return the sequence to play while covering two tiles in a game tick, or something
+	 * {@link NpcRecord#isLoadable(int)} refuses when the body declares none. Plenty of
+	 * NPCs do not run, and that is what {@link #runControllerOrNull}'s fallback is for.
+	 */
+	private int runAnimationId()
+	{
+		return customAnimations == null
+			? body.getFigure().getRunAnimation().getId()
+			: customAnimations.getRunAnimation();
 	}
 
 	@Nullable
@@ -639,7 +764,7 @@ final class Follower
 	{
 		if (walkController == null)
 		{
-			walkController = looping(figure.getWalkAnimation());
+			walkController = looping(walkAnimationId(), "walk");
 		}
 
 		// A figure that could not load its walk keeps standing rather than freezing
@@ -661,7 +786,7 @@ final class Follower
 	{
 		if (runController == null)
 		{
-			runController = looping(figure.getRunAnimation());
+			runController = looping(runAnimationId(), "run");
 		}
 
 		return runController == null ? walkControllerOrNull(settings) : runController;
@@ -681,31 +806,132 @@ final class Follower
 	 * load — it calls {@code client.loadAnimation(id)} and hands the result, null or
 	 * not, straight to {@code setAnimation} — so the only way to tell is to ask the
 	 * controller what animation it ended up with.
+	 *
+	 * @param animationId the sequence to play
+	 * @param what        which slot this is, for the log line — {@code idle}, {@code walk}
+	 *                    or {@code run}. A plain word rather than the enum constant,
+	 *                    because a custom body's animations are numbers out of the cache
+	 *                    and have no constant naming them.
 	 */
 	@Nullable
-	private AnimationController looping(EntourageAnimation animation)
+	private AnimationController looping(int animationId, String what)
 	{
+		if (!NpcRecord.isLoadable(animationId))
+		{
+			// Not an id the cache could answer for. The ordinary case is a custom body
+			// that declares no run at all, which is most NPCs — see NpcRecord. Refused
+			// before the budget is consulted rather than after: asking the client for
+			// sequence -1 spends one of the three attempts the model and the walk need,
+			// on a question whose answer is already known.
+			return null;
+		}
+
 		if (!attemptAllowed())
 		{
 			return null;
 		}
 
-		AnimationController controller = new AnimationController(client, animation.getId());
+		AnimationController controller = new AnimationController(client, animationId);
 		if (controller.getAnimation() == null)
 		{
 			spendAttempt();
 			if (attempts == 1)
 			{
-				log.warn("{}: animation {} (id {}) did not load — drawing it static for now; "
+				log.warn("{}: the {} animation (id {}) did not load — drawing it static for now; "
 						+ "a cold cache is the usual cause, so it will be retried up to {} time(s) "
 						+ "per scene load",
-					figure.label(), animation, animation.getId(), MAX_ATTEMPTS);
+					label(), what, animationId, MAX_ATTEMPTS);
 			}
 			return null;
 		}
 
 		controller.setOnFinished(AnimationController::loop);
 		return controller;
+	}
+
+	/**
+	 * Works out what a custom body wears and how it moves, once.
+	 *
+	 * <p><b>Before the models, not after</b>, because the answer decides which NPC's
+	 * models are asked for: a refused id falls all the way back to the preset, and
+	 * resolving after {@link #loadParts()} would dress the follower from an id that is
+	 * about to be turned down.
+	 *
+	 * <p>The three outcomes are {@link NpcArchive}'s, and each becomes one of this class's
+	 * two failure kinds:
+	 * <ul>
+	 *   <li>not in the cache yet — <b>transient</b>. Costs an attempt, latches nothing.</li>
+	 *   <li>not in the archive at all — <b>structural</b>, but structural about the
+	 *       <i>id</i> rather than about the follower. The follower is not broken; it wears
+	 *       the preset from its dropdown instead.</li>
+	 *   <li>read, but with no usable stand-and-walk pair — the same. This is the case
+	 *       {@link NpcRecord#hasWalkCycle()} exists for, and refusing it here is what stops
+	 *       a typed id producing a figure that slides along the ground.</li>
+	 * </ul>
+	 *
+	 * @return whether this follower now knows what it is wearing. Always true for a
+	 * preset, and for a custom body that has been read or refused; false is the retryable
+	 * case, and the caller must not spawn on it.
+	 */
+	private boolean resolveBody()
+	{
+		if (!body.isCustom() || customAnimations != null || customRejected)
+		{
+			return true;
+		}
+
+		if (!attemptAllowed())
+		{
+			return false;
+		}
+
+		NpcArchive read = NpcArchive.read(client, body.getNpcId(), body.label());
+
+		if (read.getOutcome() == NpcArchive.Outcome.UNAVAILABLE)
+		{
+			spendAttempt();
+			if (attempts == 1)
+			{
+				log.warn("{}: the cache has not produced npc {} yet — not spawning; a cold cache "
+						+ "is the usual cause, so it will be retried up to {} time(s) per scene load",
+					body.label(), body.getNpcId(), MAX_ATTEMPTS);
+			}
+			return false;
+		}
+
+		if (read.getOutcome() == NpcArchive.Outcome.ABSENT)
+		{
+			refuseCustomBody("there is no npc " + body.getNpcId() + " in the cache");
+			return true;
+		}
+
+		NpcRecord record = read.getRecord();
+		if (record == null || !record.hasWalkCycle())
+		{
+			refuseCustomBody("npc " + body.getNpcId() + " declares " + record
+				+ ", which is not a stand and a walk a follower can be made to move with");
+			return true;
+		}
+
+		customAnimations = record;
+		log.debug("{}: npc {} animates as {}", body.label(), body.getNpcId(), record);
+		return true;
+	}
+
+	/**
+	 * Turns a typed id down for good and puts the slot's own figure back.
+	 *
+	 * <p><b>A warning rather than a silent fallback, and a fallback rather than an empty
+	 * slot.</b> Refusing to spawn anything would leave the user staring at nothing with no
+	 * way to tell a bad id from a plugin that had stopped working; wearing the preset shows
+	 * that the setting was read and not used. The name label — see
+	 * {@link #getDisplayName()} — is the half of this the user can see without a log.
+	 */
+	private void refuseCustomBody(String why)
+	{
+		customRejected = true;
+		log.warn("{}: {}. Wearing {} instead — clear the \"Custom NPC id\" box, or try another id.",
+			body.label(), why, body.getFigure().getDisplayName());
 	}
 
 	/**
@@ -761,7 +987,7 @@ final class Follower
 			log.warn("{}: only {} of {} model part(s) loaded, missing id(s) {} — not spawning; "
 					+ "a cold cache is the usual cause, so it will be retried up to {} time(s) "
 					+ "per scene load",
-				figure.label(), parts.size(), modelIds.length, missing, MAX_ATTEMPTS);
+				label(), parts.size(), modelIds.length, missing, MAX_ATTEMPTS);
 		}
 
 		return null;
@@ -780,7 +1006,7 @@ final class Follower
 			return appearance.getModelIds();
 		}
 
-		FollowerAppearance resolved = FollowerAppearance.resolve(client, figure.getNpcId(), figure.label());
+		FollowerAppearance resolved = FollowerAppearance.resolve(client, npcId(), label());
 		if (resolved == null)
 		{
 			spendAttempt();
@@ -789,14 +1015,14 @@ final class Follower
 				log.warn("{}: npc {} would not resolve to an appearance — not spawning; a cold "
 						+ "cache is one cause and a renumbered NPC id is the other, so it will be "
 						+ "retried up to {} time(s) per scene load",
-					figure.label(), figure.getNpcId(), MAX_ATTEMPTS);
+					label(), npcId(), MAX_ATTEMPTS);
 			}
 			return null;
 		}
 
 		appearance = resolved;
 		log.debug("{}: dressed from '{}' — {} model(s), {} recolour pair(s)",
-			figure.label(), resolved.getNpcName(),
+			label(), resolved.getNpcName(),
 			resolved.getModelIds().length, resolved.getRecolorFind().length);
 		return resolved.getModelIds();
 	}
@@ -817,7 +1043,7 @@ final class Follower
 		if (combined == null)
 		{
 			log.warn("{}: mergeModels returned null for {} part(s), cannot spawn",
-				figure.label(), parts.size());
+				label(), parts.size());
 			return null;
 		}
 
@@ -845,7 +1071,7 @@ final class Follower
 			WORLD_AMBIENT, WORLD_CONTRAST, WORLD_LIGHT_X, WORLD_LIGHT_Y, WORLD_LIGHT_Z);
 		if (lit == null)
 		{
-			log.warn("{}: lighting produced no model, cannot spawn", figure.label());
+			log.warn("{}: lighting produced no model, cannot spawn", label());
 			return null;
 		}
 
