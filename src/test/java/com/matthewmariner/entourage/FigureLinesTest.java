@@ -22,6 +22,14 @@ import static org.junit.Assert.fail;
  */
 public class FigureLinesTest
 {
+	/**
+	 * <b>Three and seven are literals here, not {@link FigureLines#MIN_LINES} and
+	 * {@link FigureLines#MAX_LINES}.</b> An assertion that takes its expected value from
+	 * the constant it is checking proves only that the data agrees with whatever the
+	 * constant currently says: dropping {@code MIN_LINES} to zero would leave a figure
+	 * with nothing to say passing a test named for catching exactly that. "Three to seven"
+	 * is the requirement, so it is written down as the requirement.
+	 */
 	@Test
 	public void everyFigureInTheRosterHasBetweenThreeAndSevenLines()
 	{
@@ -29,12 +37,21 @@ public class FigureLinesTest
 		{
 			List<String> lines = FigureLines.of(figure);
 
-			assertTrue(figure + " has nothing to say — a figure with no lines is a dialogue "
-					+ "setting that silently does nothing for whoever picked it",
-				lines.size() >= FigureLines.MIN_LINES);
-			assertTrue(figure + " has " + lines.size() + " lines, more than the ceiling",
-				lines.size() <= FigureLines.MAX_LINES);
+			assertTrue(figure + " has " + lines.size() + " lines — fewer than three, and a "
+					+ "figure with nothing to say is a dialogue setting that silently does "
+					+ "nothing for whoever picked it",
+				lines.size() >= 3);
+			assertTrue(figure + " has " + lines.size() + " lines, more than seven",
+				lines.size() <= 7);
 		}
+	}
+
+	/** And the constants the rest of the class reasons with agree with the requirement. */
+	@Test
+	public void theShippedBoundsAreTheThreeToSevenThatWasAskedFor()
+	{
+		assertEquals(3, FigureLines.MIN_LINES);
+		assertEquals(7, FigureLines.MAX_LINES);
 	}
 
 	/**

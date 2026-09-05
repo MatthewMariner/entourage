@@ -113,6 +113,27 @@ public class EntourageConfigTest
 				< EntourageSettings.DEFAULT_DIALOGUE_INTERVAL_TICKS);
 	}
 
+	/**
+	 * <b>The two caps on the custom-lines box, as literals.</b>
+	 *
+	 * <p>Everything that exercises them — the cut, the count, and the check that no
+	 * shipped line is longer than a user's may be — is written in terms of these
+	 * constants, which is right for a behavioural test and useless as a guard on the
+	 * values themselves: raising {@code MAX_CUSTOM_LINE_LENGTH} to five thousand moves
+	 * every one of those expectations with it and nothing goes red. This is the one place
+	 * the numbers are written out, and they are the numbers the README quotes to the user.
+	 */
+	@Test
+	public void theCustomLineCapsAreTheOnesTheReadmeQuotes()
+	{
+		assertEquals("the README says anything past sixty characters is cut",
+			60, EntourageSettings.MAX_CUSTOM_LINE_LENGTH);
+		assertEquals("and that the first twelve lines are used",
+			12, EntourageSettings.MAX_CUSTOM_LINES);
+		assertEquals("the box is comma-separated, which is what was asked for",
+			',', EntourageSettings.CUSTOM_LINE_SEPARATOR);
+	}
+
 	@Test
 	public void theBoundsAreTheOnesTheDocumentationClaims()
 	{

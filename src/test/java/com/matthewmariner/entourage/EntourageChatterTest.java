@@ -163,12 +163,22 @@ public class EntourageChatterTest
 	 * <b>The cap, which is the reason this class exists.</b> There is one follower today
 	 * and the roster is the next thing to grow, so the guard is written against two — at
 	 * the tightest cadence the settings allow, where each of them wants to be talking for
-	 * eight ticks in every ten and an overlap is a certainty rather than a possibility.
+	 * nine ticks in every ten and an overlap is a certainty rather than a possibility.
 	 * Without a cap this is two lines stacked over two heads; with five followers it is
 	 * the wall of text {@code ../lively-cities} shipped a dial to prevent.
+	 *
+	 * <p><b>The number below is a literal, and that is the whole point of this revision.</b>
+	 * It used to read {@code talking <= EntourageChatter.MAX_CONCURRENT_LINES} — an
+	 * assertion that takes its expected value from the constant it is checking, so it
+	 * proves the implementation honours whatever the constant says and nothing about what
+	 * the constant says. Setting {@code MAX_CONCURRENT_LINES} to 99 left it green: two
+	 * followers talking over each other, the wall of text on screen, and a test named for
+	 * preventing exactly that passing. A literal cannot be moved by the mutation it exists
+	 * to catch. The same reasoning is why {@code EntourageSceneTest.ROSTER_SIZE} is written
+	 * out rather than derived.
 	 */
 	@Test
-	public void neverMoreThanTheCapAreTalkingAtOnce()
+	public void neverMoreThanOneFollowerIsTalkingAtOnce()
 	{
 		List<Follower> roster = new ArrayList<>(Arrays.asList(
 			spawned(EntourageFigure.ROGUE), spawned(EntourageFigure.HANS)));
@@ -186,9 +196,9 @@ public class EntourageChatterTest
 		for (int tick = 0; tick < 500; tick++)
 		{
 			int talking = chatter.onGameTick(roster, tightest);
-			assertTrue("more than " + EntourageChatter.MAX_CONCURRENT_LINES
-					+ " talking at tick " + tick,
-				talking <= EntourageChatter.MAX_CONCURRENT_LINES);
+
+			// A literal, not the constant — see the javadoc.
+			assertTrue("two followers were talking at once at tick " + tick, talking <= 1);
 
 			int actuallyUp = 0;
 			for (Follower follower : roster)
@@ -198,11 +208,39 @@ public class EntourageChatterTest
 					actuallyUp++;
 				}
 			}
+
+			// This one is data-driven on purpose: the claim is that the count handed back
+			// is the count on screen, whatever either of them is.
 			assertEquals("the count returned has to be the count on screen", talking, actuallyUp);
+			assertTrue("and two lines are two lines however they were counted", actuallyUp <= 1);
 			spoke += talking;
 		}
 
 		assertTrue("this fixture has to produce some talking to be measuring anything", spoke > 0);
+	}
+
+	/**
+	 * <b>What the cap is set to, pinned separately and with a literal.</b>
+	 *
+	 * <p>The test above says "at most one follower talks" as a fact about behaviour; this
+	 * says the shipped constant agrees with it. Raising the cap is a perfectly reasonable
+	 * thing to do when the roster grows — it should just be a deliberate act that turns
+	 * two tests red and makes somebody re-read what the behavioural one is asserting,
+	 * rather than a one-character edit that quietly widens a guarantee.
+	 *
+	 * <p><b>This assertion alone would not be enough.</b> A {@code static final int} is a
+	 * compile-time constant, so its value is inlined into this class file at compilation,
+	 * and whether a mutation of it can reach here at all depends on the build recompiling
+	 * the test source set — a property of Gradle rather than of the code. Measured rather
+	 * than assumed: setting the constant to 99 and running {@code ./gradlew test} does
+	 * turn this red, so the incremental compiler does recompile dependents when a constant
+	 * changes. The behavioural literal above has no such dependency either way — it fails
+	 * because two figures are talking, not because a number moved.
+	 */
+	@Test
+	public void theShippedCapIsOneVoiceAtATime()
+	{
+		assertEquals(1, EntourageChatter.MAX_CONCURRENT_LINES);
 	}
 
 	/** Both followers get turns rather than the first in the list holding the slot forever. */

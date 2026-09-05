@@ -12,7 +12,7 @@ and nothing about any other player is read.
 [![RuneLite](https://img.shields.io/badge/RuneLite-1.12.38-blue)](https://runelite.net)
 [![Java](https://img.shields.io/badge/Java-11-orange)](https://runelite.net)
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-312-brightgreen)](#development)
+[![Tests](https://img.shields.io/badge/tests-315-brightgreen)](#development)
 
 </div>
 
@@ -167,7 +167,7 @@ holding a pose at the time. If it's a crash or a figure that never appears,
 ## Development
 
 ```bash
-./gradlew build     # compile and run the 312 tests
+./gradlew build     # compile and run the 315 tests
 ./gradlew test      # tests only, every name printed
 ./gradlew run       # launch a dev client with the plugin loaded
 ```
@@ -187,10 +187,12 @@ instructions in the same change.
 
 Every guard here is proven by deliberately breaking the thing it claims to catch
 and confirming the test goes red first, with the mutation shown to have landed
-rather than assumed. Six passes so far — 51, 117, 26, 52, 31 and most recently 53
-mutations — have turned up ten real gaps, all covered now, including a square test
-fixture whose geometry had been hiding six axis-mix-up bugs. The latest pass left
-one survivor that no test can catch, written up as an equivalent mutant where it
+rather than assumed. Six passes so far — 51, 117, 26, 52, 31 and most recently 64
+mutations — have turned up eleven real gaps, all covered now, including a square
+test fixture whose geometry had been hiding six axis-mix-up bugs, and a test that
+took its expected value from the very constant it was checking, so the cap it was
+named for could be raised to 99 without it going red. The latest pass left one
+survivor that no test can catch, written up as an equivalent mutant where it
 lives. The case-by-case detail sits in the test source beside each guard.
 
 ### Wanted from a real client
