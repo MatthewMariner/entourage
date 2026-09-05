@@ -237,7 +237,7 @@ instructions in the same change.
 Every guard here is proven by deliberately breaking the thing it claims to catch
 and confirming the test goes red first, with the mutation shown to have landed
 rather than assumed. Seven passes so far — 51, 117, 26, 52, 31, 64 and most
-recently 73 mutations — have turned up twenty real gaps, all covered now,
+recently 80 mutations — have turned up twenty real gaps, all covered now,
 including a square test fixture whose geometry had been hiding six axis-mix-up
 bugs, and a test that took its expected value from the very constant it was
 checking, so the cap it was named for could be raised to 99 without it going red.

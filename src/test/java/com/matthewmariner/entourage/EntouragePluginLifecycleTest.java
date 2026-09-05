@@ -148,6 +148,38 @@ public class EntouragePluginLifecycleTest
 	}
 
 	/**
+	 * <b>And with a typed NPC id in the first slot.</b> A custom body reaches the spawn
+	 * path through a branch no preset takes — the cache is read before the models are, and
+	 * the id can be refused halfway through — so the teardown promise is asserted against
+	 * it rather than inferred from the presets passing.
+	 */
+	@Test
+	public void shutDownLeavesZeroRegisteredObjectsWithATypedNpcId()
+	{
+		client.withNpc(4931, FakeNpcComposition.of("Cave goblin guard", 60_001))
+			.withIndexConfig(new FakeIndexDataBase()
+				.withNpc(4931, NpcRecordBytes.record().standing(5101).walking(5102).end()));
+		config.setRoster(EntourageFigure.ROGUE, EntourageFigure.HANS, EntourageFigure.VANNAKA,
+			EntourageFigure.PIRATE, EntourageFigure.TURAEL)
+			.setCustomNpcId(4931);
+
+		EntourageScene scene = scene();
+		EntouragePlugin plugin = plugin(scene);
+
+		plugin.startUp();
+		plugin.onGameTick(new GameTick());
+		assertEquals("all five have to be on the client's list first", 5, client.registeredCount());
+		assertTrue("and the first of them has to be wearing the typed id",
+			scene.getFollowers().get(0).getBody().isCustom());
+
+		plugin.shutDown();
+
+		assertEquals("a leaked RuneLiteObject is a figure nothing owns", 0, client.registeredCount());
+		assertTrue(scene.getFollowers().isEmpty());
+		assertTrue(overlays.registered.isEmpty());
+	}
+
+	/**
 	 * The overlay that comes back out is the one that went in.
 	 *
 	 * <p>{@code OverlayManager.remove} is an identity removal, so a {@code shutDown} that
