@@ -5,6 +5,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * What the side panel draws, without the panel.
@@ -198,7 +199,7 @@ public class RosterViewTest
 		try
 		{
 			config.view().getSlots().clear();
-			org.junit.Assert.fail("the slot list must be unmodifiable");
+			fail("the slot list must be unmodifiable");
 		}
 		catch (UnsupportedOperationException expected)
 		{

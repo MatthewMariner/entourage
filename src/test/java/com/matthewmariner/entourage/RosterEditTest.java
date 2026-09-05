@@ -1,6 +1,7 @@
 package com.matthewmariner.entourage;
 
 import java.util.Arrays;
+import java.util.Collections;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -148,7 +149,7 @@ public class RosterEditTest
 
 		RosterEdit.assign(config, view(), 0, EntourageFigure.GHOMMAL);
 
-		assertEquals(java.util.Collections.singletonList("figure=GHOMMAL"), config.writes());
+		assertEquals(Collections.singletonList("figure=GHOMMAL"), config.writes());
 	}
 
 	// --- removing ------------------------------------------------------------
@@ -274,7 +275,7 @@ public class RosterEditTest
 		RosterEdit.add(config, view());
 
 		assertRoster(2, EntourageFigure.ROGUE, EntourageFigure.GHOMMAL);
-		assertEquals("only the count", java.util.Collections.singletonList("followers=2"),
+		assertEquals("only the count", Collections.singletonList("followers=2"),
 			config.writes());
 	}
 
@@ -332,7 +333,7 @@ public class RosterEditTest
 		RosterEdit.setCustomNpcId(config, 0);
 
 		assertFalse(view().isCustom());
-		assertEquals(java.util.Collections.singletonList("customNpcId="), config.writes());
+		assertEquals(Collections.singletonList("customNpcId="), config.writes());
 	}
 
 	@Test
@@ -343,7 +344,7 @@ public class RosterEditTest
 		RosterEdit.setCustomNpcId(config, -12);
 
 		assertFalse(view().isCustom());
-		assertEquals(java.util.Collections.singletonList("customNpcId="), config.writes());
+		assertEquals(Collections.singletonList("customNpcId="), config.writes());
 	}
 
 	// --- the two quick dials -------------------------------------------------
@@ -373,7 +374,7 @@ public class RosterEditTest
 
 		RosterEdit.setFormation(config, EntourageFormation.HANGOUT);
 
-		assertEquals(java.util.Collections.singletonList("formationSlot=HANGOUT"), config.writes());
+		assertEquals(Collections.singletonList("formationSlot=HANGOUT"), config.writes());
 		assertEquals("and the label really is different from the name",
 			"Hangout ring", EntourageFormation.HANGOUT.toString());
 	}

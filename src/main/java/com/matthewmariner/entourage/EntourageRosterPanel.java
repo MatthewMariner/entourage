@@ -10,10 +10,13 @@ import java.awt.Font;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
+import java.util.Locale;
 import javax.inject.Inject;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
@@ -503,8 +506,8 @@ class EntourageRosterPanel extends PluginPanel
 		body.add(backRow());
 		body.add(gap(4));
 
-		JLabel heading = new JLabel("Who walks in " + slot.getHeading().toLowerCase(
-			java.util.Locale.ROOT) + "?");
+		JLabel heading = new JLabel("Who walks in "
+			+ slot.getHeading().toLowerCase(Locale.ROOT) + "?");
 		heading.setFont(FontManager.getRunescapeBoldFont());
 		heading.setForeground(ColorScheme.BRAND_ORANGE);
 		body.add(sized(heading));
@@ -777,7 +780,7 @@ class EntourageRosterPanel extends PluginPanel
 	/** Vertical space, as a component, because BoxLayout has no gap of its own. */
 	private static Component gap(int height)
 	{
-		return javax.swing.Box.createVerticalStrut(height);
+		return Box.createVerticalStrut(height);
 	}
 
 	/**
@@ -787,7 +790,7 @@ class EntourageRosterPanel extends PluginPanel
 	 * {@code JPanel}'s maximum size is unbounded — so without this the last card in the
 	 * column stretches to the bottom of the sidebar and the ones above it drift apart.
 	 */
-	private static <T extends javax.swing.JComponent> T sized(T component)
+	private static <T extends JComponent> T sized(T component)
 	{
 		component.setMaximumSize(
 			new Dimension(Integer.MAX_VALUE, component.getPreferredSize().height));

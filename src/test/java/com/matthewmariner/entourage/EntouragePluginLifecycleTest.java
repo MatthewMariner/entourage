@@ -10,6 +10,7 @@ import net.runelite.api.events.BeforeRender;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.client.callback.ClientThread;
+import net.runelite.client.events.ConfigChanged;
 import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
@@ -71,10 +72,9 @@ public class EntouragePluginLifecycleTest
 		return event;
 	}
 
-	private static net.runelite.client.events.ConfigChanged configChanged(String group)
+	private static ConfigChanged configChanged(String group)
 	{
-		net.runelite.client.events.ConfigChanged event =
-			new net.runelite.client.events.ConfigChanged();
+		ConfigChanged event = new ConfigChanged();
 		event.setGroup(group);
 		return event;
 	}

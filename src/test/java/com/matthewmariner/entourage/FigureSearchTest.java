@@ -1,11 +1,13 @@
 package com.matthewmariner.entourage;
 
+import java.util.Arrays;
 import java.util.List;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Typing part of a name and getting the figure.
@@ -70,7 +72,7 @@ public class FigureSearchTest
 	@Test
 	public void anExactNameOutranksTheLongerNamesThatContainIt()
 	{
-		assertEquals(java.util.Arrays.asList(
+		assertEquals(Arrays.asList(
 				EntourageFigure.GRILL_KNIGHT,
 				EntourageFigure.WHITE_KNIGHT,
 				EntourageFigure.ELITE_BLACK_KNIGHT),
@@ -219,7 +221,7 @@ public class FigureSearchTest
 		try
 		{
 			matching("").add(EntourageFigure.ROGUE);
-			org.junit.Assert.fail("the result list must be unmodifiable");
+			fail("the result list must be unmodifiable");
 		}
 		catch (UnsupportedOperationException expected)
 		{
