@@ -30,6 +30,15 @@ import net.runelite.api.gameval.AnimationID;
  * out of the cache once by a human and written down here. Every id below was read that
  * way and resolved to the {@code gameval} constant that names it.
  *
+ * <p><b>{@link NpcRecord} now reads the same numbers at runtime, and the presets still
+ * do not use it.</b> That decoder exists because a typed NPC id has nobody to write its
+ * pair down for it — see {@link FollowerBody} — and reading the archive is a cache read
+ * with its own failure modes: it can come back empty on a cold login, it costs a retry
+ * budget, and it can be refused. A preset needs none of that. The ids below are already
+ * known, already named by a {@code gameval} constant a reviewer can check, and already
+ * pinned by {@code EntourageAnimationTest}; routing them through a decoder would swap a
+ * fact for a lookup that can fail.
+ *
  * <p><b>Where the ids come from.</b> {@code ../lively-cities} carries a 128-entry
  * name-to-id table because the region dataset it loads stores animations by name, so
  * the mapping has to exist somewhere; the ids in it were read out of

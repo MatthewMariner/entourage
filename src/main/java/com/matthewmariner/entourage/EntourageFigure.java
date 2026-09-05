@@ -22,15 +22,19 @@ import net.runelite.api.gameval.NpcID;
  *
  * <p><b>Every preset carries its own animations, and it has to.</b> {@code
  * NPCComposition} exposes no sequence accessor at all (see {@link EntourageAnimation}),
- * so "what does this NPC stand and walk with?" cannot be asked at runtime — it has to
- * be read out of the cache once and written down. The <b>Tier A</b> block below is
+ * so "what does this NPC stand and walk with?" cannot be asked <i>of the API</i> — it has
+ * to be read out of the cache and written down. It can now be asked of the <b>cache</b>,
+ * by {@link NpcRecord}, and that is how a typed NPC id gets a pair; the presets stay
+ * written down because a number in this file cannot come back empty on a cold login, cost
+ * a retry, or be refused. The <b>Tier A</b> block below is
  * every preset that declares the human rig's own triple, {@code HUMAN_READY} /
  * {@code HUMAN_WALK_F} / {@code HUMAN_RUNNING}; the <b>Tier B</b> block is the
  * presets that declare something else, each with the pair the cache says it uses.
  *
  * <p><b>The one thing in this enum that was not read off the NPC that plays it is the
- * run on Tier B.</b> Nothing in the cache gives Nieve a run animation, because Nieve
- * never runs. {@link EntourageAnimation#HUMAN_RUN} is used for every figure here, and
+ * run on Tier B.</b> The cache's NPC record does have a field for one — opcodes 114 and
+ * 115, which {@link NpcRecord} reads and hands to a typed id — but Nieve's record does
+ * not carry it, because Nieve never runs. {@link EntourageAnimation#HUMAN_RUN} is used for every figure here, and
  * the argument for it on Tier B is a rig argument rather than an observation: every
  * Tier B walk below is a human-framemap animation — a human holding a polearm, a
  * walking stick, a two-hander — so the human rig's own run sits on the same skeleton
