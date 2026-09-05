@@ -57,22 +57,40 @@ public class FigureSearchTest
 		}
 	}
 
+	/**
+	 * "Knight" is GRILL_KNIGHT's label and is also inside "White Knight" and "Elite Black
+	 * Knight", both of which come earlier in the enum — so without the tiers the dropdown
+	 * order would put one of those first.
+	 *
+	 * <p>The whole list rather than the first row, because the two behind it are what pins
+	 * the <i>tie</i>: the sort is stable so that equally good answers keep the order the
+	 * settings dropdown lists them in, and nothing else in this file would notice if they
+	 * came back in some other order.
+	 */
 	@Test
 	public void anExactNameOutranksTheLongerNamesThatContainIt()
 	{
-		// "Knight" is GRILL_KNIGHT's label and is also inside "White Knight" and "Elite
-		// Black Knight", both of which come earlier in the enum. Without the tiers the
-		// dropdown order would put one of those first.
-		assertSame(EntourageFigure.GRILL_KNIGHT, first("Knight"));
-		assertTrue(matching("knight").contains(EntourageFigure.WHITE_KNIGHT));
-		assertTrue(matching("knight").contains(EntourageFigure.ELITE_BLACK_KNIGHT));
+		assertEquals(java.util.Arrays.asList(
+				EntourageFigure.GRILL_KNIGHT,
+				EntourageFigure.WHITE_KNIGHT,
+				EntourageFigure.ELITE_BLACK_KNIGHT),
+			matching("Knight"));
 	}
 
+	/**
+	 * <b>Chosen so that the tier is the only thing that can produce the answer.</b> "kn"
+	 * starts "Knight", which is the fourteenth figure in the enum, and sits inside "White
+	 * Knight" and "Elite Black Knight", which are the ninth and tenth. Sorted by tier the
+	 * answer is Knight; sorted by nothing at all it is White Knight — so a version of this
+	 * test built on a query where the best match happened to come first in the enum anyway
+	 * could not fail, which is how the first draft of it read.
+	 */
 	@Test
 	public void aPrefixOutranksAMatchInTheMiddleOfAName()
 	{
-		// "Sir Amik Varze" and "Sir Vyvin" both start with it; nothing else contains it.
-		assertSame(EntourageFigure.SIR_AMIK_VARZE, first("sir"));
+		assertSame(EntourageFigure.GRILL_KNIGHT, first("kn"));
+		assertTrue("the longer names are still offered, underneath",
+			matching("kn").contains(EntourageFigure.WHITE_KNIGHT));
 
 		// "man" starts nothing and sits inside "Wise Old Man" and "Necromancer".
 		List<EntourageFigure> inTheMiddle = matching("man");
@@ -137,8 +155,8 @@ public class FigureSearchTest
 	@Test
 	public void aQueryTooShortToBeATypoIsNotTreatedAsOne()
 	{
-		assertEquals("three characters is below the near-match floor",
-			3, FigureSearch.NEAR_MATCH_MINIMUM - 1);
+		assertEquals("four characters before a typo is forgiven at all — three has too many "
+			+ "neighbours to be a spelling mistake", 4, FigureSearch.NEAR_MATCH_MINIMUM);
 
 		assertTrue("\"haz\" is one edit from \"han\" and must not reach Hans",
 			matching("haz").isEmpty());
@@ -162,17 +180,29 @@ public class FigureSearchTest
 			EntourageFigure.NECROMANCER, first("necromencor"));
 	}
 
-	/** A near match never outranks a real one, however close it is. */
+	/**
+	 * <b>A near match never outranks a real one, however close it is</b> — and these two
+	 * queries are the ones where that is load-bearing rather than incidental.
+	 *
+	 * <p>"dura" starts "Duradel", the sixth figure, and is one substitution from "Turael",
+	 * the fifth. "manc" sits inside "Necromancer", the eighteenth, and is one substitution
+	 * from the opening of "Mazchna", the seventh. In both cases the figure that comes first
+	 * in the enum is the wrong answer, so a search that ranked by nothing would hand back a
+	 * near miss over a real hit — which is what somebody typing four letters of Duradel's
+	 * name would see.
+	 */
 	@Test
 	public void aNearMatchSortsBelowEveryRealMatch()
 	{
-		// "hero" is Hero exactly, and is one edit from the opening of "Hans"? No — but it is
-		// within two of several four-letter openings, which is exactly why the exact match
-		// has to come first rather than merely be present.
-		assertSame(EntourageFigure.HERO, first("hero"));
+		assertSame("a prefix beats a one-letter miss", EntourageFigure.DURADEL, first("dura"));
+		assertTrue("and the near miss is still offered underneath",
+			matching("dura").contains(EntourageFigure.TURAEL));
 
-		List<EntourageFigure> found = matching("thief");
-		assertSame(EntourageFigure.THIEF, found.get(0));
+		assertSame("and so does a match in the middle of a name",
+			EntourageFigure.NECROMANCER, first("manc"));
+		assertTrue(matching("manc").contains(EntourageFigure.MAZCHNA));
+
+		assertSame("an exact name most of all", EntourageFigure.DURADEL, first("duradel"));
 	}
 
 	@Test
