@@ -2,17 +2,18 @@
 
 # Entourage
 
-**You walk through Gielinor alone. This gives you one companion who walks it with you.**
+**You walk through Gielinor alone. This gives you up to five who walk it with you.**
 
-One figure — Vannaka, Nieve, the Wise Old Man, a rogue, twenty more — that keeps
-pace with you at a run, holds whatever pose you pick the moment you stop, and
-says something over its head now and again. Client-side only: no packet is sent,
-and nothing about any other player is read.
+Vannaka, Nieve, the Wise Old Man, a rogue, twenty more — or any NPC id you care
+to type. They keep pace with you at a run, arrange themselves in a formation you
+pick, hold a pose the moment you stop, and say something over their heads now and
+again. Client-side only: no packet is sent, and nothing about any other player is
+read.
 
 [![RuneLite](https://img.shields.io/badge/RuneLite-1.12.38-blue)](https://runelite.net)
 [![Java](https://img.shields.io/badge/Java-11-orange)](https://runelite.net)
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-315-brightgreen)](#development)
+[![Tests](https://img.shields.io/badge/tests-460-brightgreen)](#development)
 
 </div>
 
@@ -219,7 +220,7 @@ holding a pose at the time. If it's a crash or a figure that never appears,
 ## Development
 
 ```bash
-./gradlew build     # compile and run the 315 tests
+./gradlew build     # compile and run the 460 tests
 ./gradlew test      # tests only, every name printed
 ./gradlew run       # launch a dev client with the plugin loaded
 ```
