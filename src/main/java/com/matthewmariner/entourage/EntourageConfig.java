@@ -5,6 +5,7 @@ import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
 import net.runelite.client.config.Range;
+import net.runelite.client.config.Units;
 
 /**
  * The plugin's dials.
@@ -72,9 +73,79 @@ public interface EntourageConfig extends Config
 	 */
 	String GROUP = "entourage";
 
+	// --- The keys, as constants ----------------------------------------------
+	//
+	// Every keyName below is written once, here, and referenced from its own annotation.
+	// Two reasons, and the second is new:
+	//
+	//   1. EntourageConfigTest could never see a keyName, because reading an annotation
+	//      means reflection and this repo forbids it. A constant is a literal a test can
+	//      assert against, which turns "a rename silently resets everyone's setting" from
+	//      a rule in a comment into a rule that goes red.
+	//   2. EntourageRosterPanel writes these keys back through ConfigWriter. A panel that
+	//      spelled its own copy of "figure3" would write a key nothing reads — a control
+	//      that appears to work, persists nothing, and says nothing about it. One spelling
+	//      shared by the annotation and the writer makes that impossible.
+	//
+	// Unannotated String fields on a Config interface are inert: ConfigManager's descriptor
+	// scan takes only fields carrying @ConfigSection (verified in the 1.12.38 client's
+	// getConfigDescriptor), and GROUP has sat here as one since the plugin's first commit.
+
+	/** @see #followers() */
+	String KEY_FOLLOWERS = "followers";
+
+	/**
+	 * @see #figure()
+	 *
+	 * <p>"figure" and not "figure1": it is the key this setting has always had, and
+	 * renaming it to match its four neighbours would silently reset the one setting every
+	 * existing profile has.
+	 */
+	String KEY_FIGURE = "figure";
+
+	/** @see #figure2() */
+	String KEY_FIGURE_2 = "figure2";
+
+	/** @see #figure3() */
+	String KEY_FIGURE_3 = "figure3";
+
+	/** @see #figure4() */
+	String KEY_FIGURE_4 = "figure4";
+
+	/** @see #figure5() */
+	String KEY_FIGURE_5 = "figure5";
+
+	/** @see #customNpcId() */
+	String KEY_CUSTOM_NPC_ID = "customNpcId";
+
+	/** @see #followDistance() */
+	String KEY_FOLLOW_DISTANCE = "followDistance";
+
+	/**
+	 * @see #formation()
+	 *
+	 * <p>"formationSlot" and not "formation": it is the key this setting has always had.
+	 * What it holds is now a whole shape rather than one slot, but renaming the key to
+	 * match would silently reset the setting for anybody who has one.
+	 */
+	String KEY_FORMATION = "formationSlot";
+
+	/**
+	 * The units on a distance in tiles.
+	 *
+	 * <p>{@link Units} names ticks, seconds, minutes, milliseconds, pixels and percent,
+	 * and has no constant for a tile — so this is a literal, written once here rather than
+	 * once per annotation, and it copies the client's own convention of a leading space
+	 * ({@code Units.TICKS} is {@code " ticks"}). Plural regardless of the value, which is
+	 * also the client's: its own spinners say "1 ticks".
+	 */
+	String TILES = " tiles";
+
 	@ConfigSection(
 		name = "Roster",
-		description = "How many figures walk with you, and whose bodies they wear.",
+		description = "How many figures walk with you, and whose bodies they wear. "
+			+ "The Entourage button in the sidebar does all of this with a search and five "
+			+ "cards instead of five dropdowns.",
 		position = 5
 	)
 	String rosterSection = "roster";
@@ -117,7 +188,7 @@ public interface EntourageConfig extends Config
 	// --- Roster --------------------------------------------------------------
 
 	@ConfigItem(
-		keyName = "followers",
+		keyName = KEY_FOLLOWERS,
 		name = "Followers",
 		description = "How many figures walk with you, from one to five. The figure dropdowns below "
 			+ "this number are the ones in play; the rest keep whatever they are set to and are "
@@ -132,10 +203,7 @@ public interface EntourageConfig extends Config
 	}
 
 	@ConfigItem(
-		// "figure" and not "figure1": it is the key this setting has always had, and
-		// renaming it to match its four new neighbours would silently reset the one
-		// setting every existing profile has.
-		keyName = "figure",
+		keyName = KEY_FIGURE,
 		name = "Figure 1",
 		description = "Whose body the first follower wears. Every one of these is built from the "
 			+ "game's own cache, and each carries the stand and walk animations that NPC actually "
@@ -150,7 +218,7 @@ public interface EntourageConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "figure2",
+		keyName = KEY_FIGURE_2,
 		name = "Figure 2",
 		description = "Whose body the second follower wears. Used when \"Followers\" is at least two.",
 		position = 3,
@@ -162,7 +230,7 @@ public interface EntourageConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "figure3",
+		keyName = KEY_FIGURE_3,
 		name = "Figure 3",
 		description = "Whose body the third follower wears. Used when \"Followers\" is at least three.",
 		position = 4,
@@ -174,7 +242,7 @@ public interface EntourageConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "figure4",
+		keyName = KEY_FIGURE_4,
 		name = "Figure 4",
 		description = "Whose body the fourth follower wears. Used when \"Followers\" is at least four.",
 		position = 5,
@@ -186,7 +254,7 @@ public interface EntourageConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "figure5",
+		keyName = KEY_FIGURE_5,
 		name = "Figure 5",
 		description = "Whose body the fifth follower wears. Used when \"Followers\" is five.",
 		position = 6,
@@ -198,7 +266,7 @@ public interface EntourageConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "customNpcId",
+		keyName = KEY_CUSTOM_NPC_ID,
 		name = "Custom NPC id",
 		description = "Puts any NPC in the first slot instead of whatever \"Figure 1\" says — type its "
 			+ "id and leave the rest alone. Zero means \"use the dropdown\", which is where it starts. "
@@ -219,7 +287,7 @@ public interface EntourageConfig extends Config
 	// --- Movement ------------------------------------------------------------
 
 	@ConfigItem(
-		keyName = "followDistance",
+		keyName = KEY_FOLLOW_DISTANCE,
 		name = "Follow distance",
 		description = "How far out the nearest rank of the formation stands, in tiles. One is at "
 			+ "your shoulder; two gives them room and makes them more likely to get caught on a "
@@ -229,18 +297,17 @@ public interface EntourageConfig extends Config
 		section = movementSection
 	)
 	@Range(min = EntourageSettings.MIN_FOLLOW_DISTANCE, max = EntourageSettings.MAX_FOLLOW_DISTANCE)
+	@Units(TILES)
 	default int followDistance()
 	{
 		return EntourageSettings.DEFAULT_FOLLOW_DISTANCE;
 	}
 
 	@ConfigItem(
-		// "formationSlot" and not "formation": it is the key this setting has always had.
-		// What it holds is now a whole shape rather than one slot, but renaming the key to
-		// match would silently reset the setting for anybody who has one — which AGENTS.md
-		// forbids without a migration, and which a tidier name is not worth. The enum
-		// constant names are fixed for the same reason.
-		keyName = "formationSlot",
+		// The enum constant names are fixed for the same reason the key is — see
+		// KEY_FORMATION above. ConfigManager stores an enum by name(), so renaming a
+		// constant in EntourageFormation resets this setting for anybody who picked it.
+		keyName = KEY_FORMATION,
 		name = "Formation",
 		description = "The shape the entourage stands in. The first four put everybody in a single "
 			+ "file or rank in one direction; \"Hangout ring\" spreads them around you facing "
@@ -299,6 +366,7 @@ public interface EntourageConfig extends Config
 		section = movementSection
 	)
 	@Range(min = EntourageSettings.MIN_RECALL_DISTANCE, max = EntourageSettings.MAX_RECALL_DISTANCE)
+	@Units(TILES)
 	default int recallDistance()
 	{
 		return EntourageSettings.DEFAULT_RECALL_DISTANCE;
@@ -404,6 +472,7 @@ public interface EntourageConfig extends Config
 		min = EntourageSettings.MIN_DIALOGUE_INTERVAL_TICKS,
 		max = EntourageSettings.MAX_DIALOGUE_INTERVAL_TICKS
 	)
+	@Units(Units.TICKS)
 	default int dialogueIntervalTicks()
 	{
 		return EntourageSettings.DEFAULT_DIALOGUE_INTERVAL_TICKS;
@@ -422,6 +491,7 @@ public interface EntourageConfig extends Config
 		min = EntourageSettings.MIN_DIALOGUE_DWELL_TICKS,
 		max = EntourageSettings.MAX_DIALOGUE_DWELL_TICKS
 	)
+	@Units(Units.TICKS)
 	default int dialogueDwellTicks()
 	{
 		return EntourageSettings.DEFAULT_DIALOGUE_DWELL_TICKS;

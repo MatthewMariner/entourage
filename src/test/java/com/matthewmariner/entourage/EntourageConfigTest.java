@@ -11,19 +11,66 @@ import static org.junit.Assert.assertTrue;
 /**
  * The settings surface as a fresh install sees it.
  *
- * <p><b>What is deliberately not tested here, and why.</b> The {@code keyName}s and the
- * {@code @Range} bounds live in annotations, and reading an annotation means reflection,
- * which this repo forbids. So the bounds are pinned through the constants the
- * annotations are written in terms of — {@link EntourageSettings#MIN_FOLLOW_DISTANCE}
- * and friends — which is the whole of the arithmetic either way, and the key names are
- * held by the rule in {@link EntourageConfig}'s javadoc rather than by a test. Writing a
- * literal into a {@code @Range} instead of the constant would slip past this file; that
- * is the known gap, and it is cheaper than a reflective test in a plugin that is not
- * allowed to have one.
+ * <p><b>What is deliberately not tested here, and why.</b> The {@code @Range} bounds live
+ * in annotations, and reading an annotation means reflection, which this repo forbids. So
+ * the bounds are pinned through the constants the annotations are written in terms of —
+ * {@link EntourageSettings#MIN_FOLLOW_DISTANCE} and friends — which is the whole of the
+ * arithmetic either way. Writing a literal into a {@code @Range} instead of the constant
+ * would slip past this file; that is the known gap, and it is cheaper than a reflective
+ * test in a plugin that is not allowed to have one.
+ *
+ * <p><b>The {@code keyName}s used to be in that gap and are not any more.</b> Every one of
+ * them is now a constant on {@link EntourageConfig} that its own annotation refers to, so
+ * the strings are literals a test can hold — see
+ * {@link #theKeyNamesAreTheOnesAlreadyWrittenIntoProfiles()}. The rename rule that used to
+ * live only in a javadoc paragraph now goes red.
  */
 public class EntourageConfigTest
 {
 	private final EntourageConfig config = new FakeConfig();
+
+	/**
+	 * <b>Every key, spelled out.</b> A {@code keyName} is what RuneLite writes into the
+	 * user's profile: rename one and that setting silently resets to its default for
+	 * everybody who had it, with no error and nothing in a log. There is no way to notice
+	 * that from inside the plugin, because a profile with no value for a key and a profile
+	 * that never had one are the same profile.
+	 *
+	 * <p>So the strings are written out here rather than compared against themselves. Two
+	 * of them are deliberately not what their setting is called — {@code figure} is the
+	 * first of five slots and {@code formationSlot} now holds a whole shape — and those two
+	 * are exactly the ones a tidying pass would "fix".
+	 */
+	@Test
+	public void theKeyNamesAreTheOnesAlreadyWrittenIntoProfiles()
+	{
+		assertEquals("followers", EntourageConfig.KEY_FOLLOWERS);
+		assertEquals("the first slot's key predates the other four and cannot become figure1",
+			"figure", EntourageConfig.KEY_FIGURE);
+		assertEquals("figure2", EntourageConfig.KEY_FIGURE_2);
+		assertEquals("figure3", EntourageConfig.KEY_FIGURE_3);
+		assertEquals("figure4", EntourageConfig.KEY_FIGURE_4);
+		assertEquals("figure5", EntourageConfig.KEY_FIGURE_5);
+		assertEquals("customNpcId", EntourageConfig.KEY_CUSTOM_NPC_ID);
+		assertEquals("followDistance", EntourageConfig.KEY_FOLLOW_DISTANCE);
+		assertEquals("this one holds a formation now and is still called formationSlot",
+			"formationSlot", EntourageConfig.KEY_FORMATION);
+	}
+
+	/**
+	 * The units suffix the settings spinner shows beside a distance.
+	 *
+	 * <p>{@code net.runelite.client.config.Units} has no tile, so this one is a literal
+	 * rather than a client constant — and the leading space is load-bearing. Without it the
+	 * spinner reads "2tiles".
+	 */
+	@Test
+	public void aDistanceInTilesSaysSoTheWayTheClientSaysTicks()
+	{
+		assertEquals(" tiles", EntourageConfig.TILES);
+		assertEquals("the client's own convention, which this one copies",
+			" ticks", net.runelite.client.config.Units.TICKS);
+	}
 
 	/**
 	 * The group is the prefix on every key in the user's profile. Renaming it resets
