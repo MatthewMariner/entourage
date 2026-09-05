@@ -7,12 +7,11 @@ import lombok.extern.slf4j.Slf4j;
  * Who is saying something, and for how long.
  *
  * <p><b>The cap is the reason this is a class and not four lines inside
- * {@link EntourageScene}.</b> There is one follower today, so "at most
- * {@link #MAX_CONCURRENT_LINES} of them may be talking" is a rule with nothing to
- * constrain — and it is written here anyway, because the roster is the next thing to
- * grow and a cap retro-fitted to a crowd is a cap that arrives after the wall of text
- * does. {@code ../lively-cities} learned this the expensive way: overhead chatter was
- * its predecessor's single loudest complaint, and its {@code maxConcurrentRemarks} exists
+ * {@link EntourageScene}.</b> It was written before there was a roster to constrain,
+ * because a cap retro-fitted to a crowd is a cap that arrives after the wall of text
+ * does; there are up to five followers now, and it is doing the job it was written for.
+ * {@code ../lively-cities} learned this the expensive way: overhead chatter was its
+ * predecessor's single loudest complaint, and its {@code maxConcurrentRemarks} exists
  * precisely because forty citizens talking at once is not ambience. The shape below is
  * that plugin's pass order — expire, then count, then start up to the cap — with the
  * parts that only make sense for a crowd (a radius, a per-citizen chance, a nearest-first
@@ -48,11 +47,22 @@ final class EntourageChatter
 	 * How many followers may have a line on screen at the same time: one.
 	 *
 	 * <p>A constant rather than a setting, and one rather than "all of them". With a
-	 * single follower the two are the same number, which is exactly why this is worth
-	 * writing down now — the moment a formation exists, "everyone speaks whenever they
-	 * are due" is five lines of text stacked over five heads, and the plugin that already
-	 * shipped this feature caps it at three for forty figures. Raising it is a one-line
-	 * change with a test to match; discovering it is missing is a screenshot on Reddit.
+	 * single follower the two were the same number; there are five now, and "everyone
+	 * speaks whenever they are due" would be five lines of text stacked over five heads.
+	 *
+	 * <p><b>Deliberately still one, and not three.</b> {@code ../lively-cities} allows
+	 * three concurrent remarks across forty citizens, and the temptation is to read that
+	 * as a per-figure ratio and raise this. It is not one: <b>its three are spread over a
+	 * town and these five stand within two tiles of each other.</b>
+	 * {@link EntourageOverlay} draws each line a fixed
+	 * {@link EntourageOverlay#TEXT_HEIGHT} above its own figure, so two lines over two
+	 * adjacent followers are two lines overlapping on the same few hundred pixels — which
+	 * is not two remarks but one unreadable smear. Five followers at the shipped cadence
+	 * still produce five lines a minute between them; the cap only decides whether they
+	 * queue, and queueing is what makes them readable. Raising it should turn
+	 * {@code theShippedCapIsOneVoiceAtATime} and
+	 * {@code neverMoreThanOneFollowerIsTalkingAtOnce} red, both of which assert against
+	 * literals on purpose so that it cannot be done by accident.
 	 */
 	static final int MAX_CONCURRENT_LINES = 1;
 

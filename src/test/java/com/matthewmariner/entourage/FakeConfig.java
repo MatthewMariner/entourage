@@ -20,9 +20,14 @@ package com.matthewmariner.entourage;
  */
 final class FakeConfig implements EntourageConfig
 {
+	private int followers = EntourageConfig.super.followers();
 	private EntourageFigure figure = EntourageConfig.super.figure();
+	private EntourageFigure figure2 = EntourageConfig.super.figure2();
+	private EntourageFigure figure3 = EntourageConfig.super.figure3();
+	private EntourageFigure figure4 = EntourageConfig.super.figure4();
+	private EntourageFigure figure5 = EntourageConfig.super.figure5();
 	private int followDistance = EntourageConfig.super.followDistance();
-	private FormationSlot formationSlot = EntourageConfig.super.formationSlot();
+	private EntourageFormation formation = EntourageConfig.super.formation();
 	private FollowerFacing facing = EntourageConfig.super.facing();
 	private boolean canRun = EntourageConfig.super.canRun();
 	private int recallDistance = EntourageConfig.super.recallDistance();
@@ -54,15 +59,63 @@ final class FakeConfig implements EntourageConfig
 		return this;
 	}
 
+	/**
+	 * Fills the roster: the count and as many figure slots as there are arguments.
+	 *
+	 * <p>Both halves at once because they are one question — the four slots past the count
+	 * are ignored, so setting a figure without the count is a fixture that quietly tests
+	 * nothing, and it is the mistake this method exists to make impossible.
+	 */
+	FakeConfig setRoster(EntourageFigure... figures)
+	{
+		this.followers = figures.length;
+		for (int index = 0; index < figures.length; index++)
+		{
+			setFigureAt(index, figures[index]);
+		}
+		return this;
+	}
+
+	/** The count on its own, including values the {@code @Range} would refuse. */
+	FakeConfig setFollowers(int followers)
+	{
+		this.followers = followers;
+		return this;
+	}
+
+	/** One slot on its own, 0-based, including slots past the count. */
+	FakeConfig setFigureAt(int index, EntourageFigure figure)
+	{
+		switch (index)
+		{
+			case 1:
+				this.figure2 = figure;
+				break;
+			case 2:
+				this.figure3 = figure;
+				break;
+			case 3:
+				this.figure4 = figure;
+				break;
+			case 4:
+				this.figure5 = figure;
+				break;
+			default:
+				this.figure = figure;
+				break;
+		}
+		return this;
+	}
+
 	FakeConfig setFollowDistance(int followDistance)
 	{
 		this.followDistance = followDistance;
 		return this;
 	}
 
-	FakeConfig setFormationSlot(FormationSlot formationSlot)
+	FakeConfig setFormation(EntourageFormation formation)
 	{
-		this.formationSlot = formationSlot;
+		this.formation = formation;
 		return this;
 	}
 
@@ -139,9 +192,39 @@ final class FakeConfig implements EntourageConfig
 	}
 
 	@Override
+	public int followers()
+	{
+		return followers;
+	}
+
+	@Override
 	public EntourageFigure figure()
 	{
 		return figure;
+	}
+
+	@Override
+	public EntourageFigure figure2()
+	{
+		return figure2;
+	}
+
+	@Override
+	public EntourageFigure figure3()
+	{
+		return figure3;
+	}
+
+	@Override
+	public EntourageFigure figure4()
+	{
+		return figure4;
+	}
+
+	@Override
+	public EntourageFigure figure5()
+	{
+		return figure5;
 	}
 
 	@Override
@@ -151,9 +234,9 @@ final class FakeConfig implements EntourageConfig
 	}
 
 	@Override
-	public FormationSlot formationSlot()
+	public EntourageFormation formation()
 	{
-		return formationSlot;
+		return formation;
 	}
 
 	@Override

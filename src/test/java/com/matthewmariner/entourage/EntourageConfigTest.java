@@ -1,5 +1,8 @@
 package com.matthewmariner.entourage;
 
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -36,13 +39,55 @@ public class EntourageConfigTest
 	@Test
 	public void aFreshInstallWalksARogueOneTileBehindAtARunHoldingItsOwnPose()
 	{
+		assertEquals("one follower, so a profile written before the roster existed still "
+			+ "means what it meant", 1, config.followers());
 		assertEquals(EntourageFigure.ROGUE, config.figure());
 		assertEquals(1, config.followDistance());
-		assertEquals(FormationSlot.BEHIND, config.formationSlot());
+		assertEquals(EntourageFormation.BEHIND, config.formation());
 		assertEquals(12, config.recallDistance());
 		assertEquals(EntouragePose.FIGURE_DEFAULT, config.idlePose());
 		assertTrue("running is on by default — without it a running player is never kept up with",
 			config.canRun());
+	}
+
+	/**
+	 * <b>Five different bodies in the five slots.</b> A default that put the same figure in
+	 * all of them would make turning the roster up look like the setting had not worked —
+	 * five identical figures reads as one figure drawn five times, which is also what the
+	 * bug would look like.
+	 */
+	@Test
+	public void theFiveFigureSlotsShipFiveDifferentFigures()
+	{
+		Set<EntourageFigure> shipped = new HashSet<>(Arrays.asList(
+			config.figure(), config.figure2(), config.figure3(), config.figure4(),
+			config.figure5()));
+
+		assertEquals("five slots, five bodies", EntourageSettings.MAX_FOLLOWERS, shipped.size());
+		assertEquals("the first slot is the one every existing profile has",
+			EntourageFigure.DEFAULT, config.figure());
+
+		for (EntourageFigure figure : shipped)
+		{
+			assertEquals(figure.name() + " is not on the human rig, so a default group would "
+					+ "not move as one group",
+				EntourageAnimation.HUMAN_WALK, figure.getWalkAnimation());
+		}
+	}
+
+	/** And the enum's own answer is the one the dropdowns use, rather than a second copy. */
+	@Test
+	public void theShippedRosterComesFromTheFigureEnumRatherThanFromTheConfig()
+	{
+		assertEquals(EntourageFigure.defaultAt(0), config.figure());
+		assertEquals(EntourageFigure.defaultAt(1), config.figure2());
+		assertEquals(EntourageFigure.defaultAt(2), config.figure3());
+		assertEquals(EntourageFigure.defaultAt(3), config.figure4());
+		assertEquals(EntourageFigure.defaultAt(4), config.figure5());
+
+		assertEquals("anything off the end of the roster is the first slot's figure",
+			EntourageFigure.DEFAULT, EntourageFigure.defaultAt(-1));
+		assertEquals(EntourageFigure.DEFAULT, EntourageFigure.defaultAt(9));
 	}
 
 	@Test
@@ -72,6 +117,8 @@ public class EntourageConfigTest
 	{
 		EntourageSettings settings = EntourageSettings.from(config);
 
+		assertEquals("the roster count default is outside its own range",
+			config.followers(), settings.getRosterSize());
 		assertEquals("the follow distance default is outside its own range",
 			config.followDistance(), settings.getFollowDistance());
 		assertEquals("the recall distance default is outside its own range",
@@ -141,14 +188,49 @@ public class EntourageConfigTest
 			1, EntourageSettings.MIN_FOLLOW_DISTANCE);
 		assertEquals("greedy stepping does not survive a slot further out than this",
 			2, EntourageSettings.MAX_FOLLOW_DISTANCE);
-		assertEquals(6, EntourageSettings.MIN_RECALL_DISTANCE);
+		assertEquals("a column of five at the widest follow distance reaches this far back",
+			6, EntourageSettings.MAX_STATION_DISTANCE);
+		assertEquals("the furthest station plus two tiles of slack", 8,
+			EntourageSettings.MIN_RECALL_DISTANCE);
 		assertEquals("the loaded scene is 104 tiles, and a recall has to land inside it",
 			20, EntourageSettings.MAX_RECALL_DISTANCE);
 
 		assertTrue("a range whose minimum exceeds its maximum clamps everything to one value",
 			EntourageSettings.MIN_FOLLOW_DISTANCE < EntourageSettings.MAX_FOLLOW_DISTANCE);
 		assertTrue(EntourageSettings.MIN_RECALL_DISTANCE < EntourageSettings.MAX_RECALL_DISTANCE);
+		assertTrue("a follower standing where it was told to must never be recalled for it",
+			EntourageSettings.MAX_STATION_DISTANCE < EntourageSettings.MIN_RECALL_DISTANCE);
 		assertTrue("a follower must never be told to stand further out than it is recalled from",
 			EntourageSettings.MAX_FOLLOW_DISTANCE < EntourageSettings.MIN_RECALL_DISTANCE);
+	}
+
+	/**
+	 * <b>The roster bounds, as literals, and the budget claim behind the upper one.</b>
+	 * Everything that exercises the cap is written in terms of {@code MAX_FOLLOWERS},
+	 * which is right for a behavioural test and useless as a guard on the value: raising it
+	 * to nine moves every one of those loops with it and nothing goes red. This is the one
+	 * place the number is written out.
+	 *
+	 * <p>Five is what the owner asked for and what the inherited budget clears —
+	 * {@code ../lively-cities}' {@code RenderPolicy} allows 80 active objects and 9 model
+	 * builds per frame, and five followers are five objects built once each. <b>No frame
+	 * cost has been measured for this plugin</b>, so the ceiling is a deliberate stop
+	 * rather than a profiled one, and moving it should be a decision somebody takes rather
+	 * than a character they change.
+	 */
+	@Test
+	public void theRosterBoundsAreTheOnesTheReadmeQuotes()
+	{
+		assertEquals("one follower, because a roster of nobody is the plugin's own off switch",
+			1, EntourageSettings.MIN_FOLLOWERS);
+		assertEquals("five, which is what was asked for and what the inherited budget clears",
+			5, EntourageSettings.MAX_FOLLOWERS);
+		assertEquals("and a fresh install is still the one figure it always was",
+			1, EntourageSettings.DEFAULT_FOLLOWERS);
+
+		assertTrue(EntourageSettings.MIN_FOLLOWERS < EntourageSettings.MAX_FOLLOWERS);
+		assertTrue("the shipped roster has to be inside the range it is clamped to",
+			EntourageSettings.DEFAULT_FOLLOWERS >= EntourageSettings.MIN_FOLLOWERS
+				&& EntourageSettings.DEFAULT_FOLLOWERS <= EntourageSettings.MAX_FOLLOWERS);
 	}
 }

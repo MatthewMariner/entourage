@@ -1,6 +1,7 @@
 package com.matthewmariner.entourage;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
@@ -29,10 +30,10 @@ public class EntourageSettingsTest
 		EntourageSettings settings = new FakeConfig()
 			.setFigure(EntourageFigure.VANNAKA)
 			.setFollowDistance(2)
-			.setFormationSlot(FormationSlot.LEFT)
+			.setFormation(EntourageFormation.LEFT)
 			.setFacing(FollowerFacing.SOUTH_WEST)
 			.setCanRun(false)
-			.setRecallDistance(7)
+			.setRecallDistance(9)
 			.setIdlePose(EntouragePose.DANCE)
 			.setHideInInstances(true)
 			.setDialogue(false)
@@ -40,12 +41,12 @@ public class EntourageSettingsTest
 			.setDialogueDwellTicks(11)
 			.settings();
 
-		assertSame(EntourageFigure.VANNAKA, settings.getFigure());
+		assertEquals(Collections.singletonList(EntourageFigure.VANNAKA), settings.getFigures());
 		assertEquals(2, settings.getFollowDistance());
-		assertSame(FormationSlot.LEFT, settings.getFormationSlot());
+		assertSame(EntourageFormation.LEFT, settings.getFormation());
 		assertSame(FollowerFacing.SOUTH_WEST, settings.getFacing());
 		assertFalse(settings.canRun());
-		assertEquals(7, settings.getRecallDistance());
+		assertEquals(9, settings.getRecallDistance());
 		assertSame(EntouragePose.DANCE, settings.getIdlePose());
 		assertTrue(settings.hideInInstances());
 		assertFalse(settings.isDialogue());
@@ -68,6 +69,125 @@ public class EntourageSettingsTest
 
 		assertFalse(quiet.isDialogue());
 		assertFalse("and neither has being quiet", quiet.hideInInstances());
+	}
+
+	// --- The roster -----------------------------------------------------------
+
+	/**
+	 * The five slots are five different fields, read in order. A fixture that set them all
+	 * to the same figure could not tell a getter wired to its neighbour from a correct one,
+	 * and one that only set the first could not tell four slots from one.
+	 */
+	@Test
+	public void theRosterIsTheFiveFigureSlotsInOrder()
+	{
+		EntourageSettings settings = new FakeConfig()
+			.setRoster(EntourageFigure.VANNAKA, EntourageFigure.HANS, EntourageFigure.PIRATE,
+				EntourageFigure.TURAEL, EntourageFigure.GHOMMAL)
+			.settings();
+
+		assertEquals(Arrays.asList(EntourageFigure.VANNAKA, EntourageFigure.HANS,
+			EntourageFigure.PIRATE, EntourageFigure.TURAEL, EntourageFigure.GHOMMAL),
+			settings.getFigures());
+		assertEquals(EntourageSettings.MAX_FOLLOWERS, settings.getRosterSize());
+	}
+
+	/**
+	 * <b>The count decides how many slots are read, and the slots past it are not read at
+	 * all.</b> RuneLite has no way to blank a dropdown, so a slot the user has turned off
+	 * still holds whatever they last set it to — a roster that took the figures without
+	 * consulting the count would put a follower on screen that the count says is not there.
+	 */
+	@Test
+	public void theSlotsPastTheCountAreIgnoredRatherThanWalkedWith()
+	{
+		EntourageSettings settings = new FakeConfig()
+			.setRoster(EntourageFigure.VANNAKA, EntourageFigure.HANS)
+			.setFigureAt(2, EntourageFigure.PIRATE)
+			.setFigureAt(4, EntourageFigure.GHOMMAL)
+			.settings();
+
+		assertEquals(Arrays.asList(EntourageFigure.VANNAKA, EntourageFigure.HANS),
+			settings.getFigures());
+		assertFalse("a figure past the count is not in the entourage",
+			settings.getFigures().contains(EntourageFigure.PIRATE));
+	}
+
+	/** The same figure five times is a legal roster, and it is five followers. */
+	@Test
+	public void thesameFigureInEverySlotIsStillFiveFollowers()
+	{
+		EntourageSettings settings = new FakeConfig()
+			.setRoster(EntourageFigure.ROGUE, EntourageFigure.ROGUE, EntourageFigure.ROGUE,
+				EntourageFigure.ROGUE, EntourageFigure.ROGUE)
+			.settings();
+
+		assertEquals(5, settings.getRosterSize());
+		assertEquals(Collections.nCopies(5, EntourageFigure.ROGUE), settings.getFigures());
+	}
+
+	@Test
+	public void aRosterCountOutsideItsRangeIsBroughtBackInside()
+	{
+		assertEquals("nobody at all is what the plugin's own on switch is for",
+			EntourageSettings.MIN_FOLLOWERS,
+			new FakeConfig().setFollowers(0).settings().getRosterSize());
+		assertEquals(EntourageSettings.MIN_FOLLOWERS,
+			new FakeConfig().setFollowers(Integer.MIN_VALUE).settings().getRosterSize());
+		assertEquals("a hand-edited profile must not be able to ask for a crowd",
+			EntourageSettings.MAX_FOLLOWERS,
+			new FakeConfig().setFollowers(400).settings().getRosterSize());
+	}
+
+	@Test
+	public void everyRosterCountInRangeIsAcceptedAsItself()
+	{
+		for (int count = EntourageSettings.MIN_FOLLOWERS;
+			count <= EntourageSettings.MAX_FOLLOWERS; count++)
+		{
+			assertEquals(count, new FakeConfig().setFollowers(count).settings().getRosterSize());
+		}
+	}
+
+	/**
+	 * The roster a caller could edit is a roster {@link EntourageScene} would fail to
+	 * notice changing — it keeps the reference to compare next tick's against.
+	 */
+	@Test
+	public void theRosterCannotBeEditedByItsCallers()
+	{
+		try
+		{
+			FakeConfig.defaults().getFigures().add(EntourageFigure.HANS);
+			fail("a snapshot a caller can edit is not a snapshot");
+		}
+		catch (UnsupportedOperationException expected)
+		{
+			// The point of the test.
+		}
+	}
+
+	/**
+	 * A null out of any of the five figure slots falls back to that slot's own shipped
+	 * default rather than to the first slot's, so a proxy that answered null for slot three
+	 * does not silently make a roster of duplicate Rogues.
+	 */
+	@Test
+	public void aNullFigureSlotFallsBackToThatSlotsOwnDefault()
+	{
+		EntourageSettings settings = new FakeConfig()
+			.setFollowers(EntourageSettings.MAX_FOLLOWERS)
+			.setFigureAt(0, null)
+			.setFigureAt(1, null)
+			.setFigureAt(2, null)
+			.setFigureAt(3, null)
+			.setFigureAt(4, null)
+			.settings();
+
+		assertEquals(Arrays.asList(
+			EntourageFigure.defaultAt(0), EntourageFigure.defaultAt(1),
+			EntourageFigure.defaultAt(2), EntourageFigure.defaultAt(3),
+			EntourageFigure.defaultAt(4)), settings.getFigures());
 	}
 
 	// --- The dialogue cadence -------------------------------------------------
@@ -261,11 +381,11 @@ public class EntourageSettingsTest
 	{
 		EntourageSettings settings = new FakeConfig()
 			.setFollowDistance(2)
-			.setRecallDistance(6)
+			.setRecallDistance(9)
 			.settings();
 
 		assertEquals(2, settings.getFollowDistance());
-		assertEquals(6, settings.getRecallDistance());
+		assertEquals(9, settings.getRecallDistance());
 	}
 
 	@Test
@@ -334,14 +454,14 @@ public class EntourageSettingsTest
 	{
 		EntourageSettings settings = new FakeConfig()
 			.setFigure(null)
-			.setFormationSlot(null)
+			.setFormation(null)
 			.setFacing(null)
 			.setIdlePose(null)
 			.setDialogueLines(null)
 			.settings();
 
-		assertSame(EntourageFigure.DEFAULT, settings.getFigure());
-		assertSame(FormationSlot.BEHIND, settings.getFormationSlot());
+		assertEquals(Collections.singletonList(EntourageFigure.DEFAULT), settings.getFigures());
+		assertSame(EntourageFormation.DEFAULT, settings.getFormation());
 		assertSame(FollowerFacing.AT_ME, settings.getFacing());
 		assertSame(EntouragePose.FIGURE_DEFAULT, settings.getIdlePose());
 		assertTrue("a null settings box is no custom lines, not a crash in the tick handler",
@@ -355,10 +475,12 @@ public class EntourageSettingsTest
 	{
 		EntourageSettings settings = FakeConfig.defaults();
 
-		assertSame(EntourageFigure.ROGUE, settings.getFigure());
+		assertEquals("a fresh install still walks one Rogue, exactly as it always did",
+			Collections.singletonList(EntourageFigure.ROGUE), settings.getFigures());
+		assertEquals(EntourageSettings.DEFAULT_FOLLOWERS, settings.getRosterSize());
 		assertEquals(EntourageSettings.DEFAULT_FOLLOW_DISTANCE, settings.getFollowDistance());
 		assertEquals(EntourageSettings.DEFAULT_RECALL_DISTANCE, settings.getRecallDistance());
-		assertSame(FormationSlot.BEHIND, settings.getFormationSlot());
+		assertSame(EntourageFormation.BEHIND, settings.getFormation());
 		assertSame(FollowerFacing.AT_ME, settings.getFacing());
 		assertSame(EntouragePose.FIGURE_DEFAULT, settings.getIdlePose());
 		assertTrue(settings.canRun());

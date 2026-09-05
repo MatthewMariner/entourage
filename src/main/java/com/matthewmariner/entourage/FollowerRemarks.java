@@ -24,15 +24,25 @@ import javax.annotation.Nullable;
  *       from the figure it belongs to.</li>
  * </ul>
  *
- * <p><b>The randomness is seeded from the figure, and not from the clock.</b> Two
- * reasons, and the second is about a roster this plugin does not have yet. A fixed seed
- * makes a follower's order of lines the same every session, so a test can assert
- * something about a thousand ticks. And seeding <i>per figure</i> means that when there
- * is more than one follower, two of them ticking on the same tick draw from two different
- * streams — the failure it avoids is two figures saying their lines in lockstep forever,
- * which is what one shared {@link Random} would produce and which nobody could debug from
- * the outside. {@link #spread} is derived the same way, for the same reason: it staggers
- * whose turn it is to speak rather than letting a group all become due together.
+ * <p><b>The randomness is seeded from the figure and from the roster position, and not
+ * from the clock.</b> Three reasons:
+ * <ul>
+ *   <li>A fixed seed makes a follower's order of lines the same every session, so a test
+ *       can assert something about a thousand ticks.</li>
+ *   <li>Seeding <i>per figure</i> means two followers ticking on the same tick draw from
+ *       two different streams — the failure it avoids is two figures saying their lines in
+ *       lockstep forever, which is what one shared {@link Random} would produce and which
+ *       nobody could debug from the outside.</li>
+ *   <li><b>Seeding per roster <i>position</i> as well is what makes that hold when the
+ *       user picks the same figure twice.</b> Nothing stops a roster of five Rogues, and
+ *       the figure's name hash is the same number five times — so on the figure alone all
+ *       five would share a stream and a stagger, become due on exactly the same tick, and
+ *       with {@link EntourageChatter#MAX_CONCURRENT_LINES} at one the first of them would
+ *       take every turn to speak for the rest of the session while the other four never
+ *       said a word.</li>
+ * </ul>
+ * {@link #spread} is derived the same way and for the same reason: it staggers whose turn
+ * it is to speak rather than letting a group all become due together.
  *
  * <p><b>Client-thread-free.</b> Nothing here touches the client.
  */
@@ -46,9 +56,26 @@ final class FollowerRemarks
 	private static final long SEED_SALT = 0x5AF31C0FFEEL;
 
 	/**
-	 * The stream this follower draws its lines from. Seeded from the figure's own name —
-	 * {@code String.hashCode} is specified by the language, so it is the same number on
-	 * every machine and in every session.
+	 * How far apart two roster positions are pushed in the seed: 7919, a prime.
+	 *
+	 * <p>Prime, and large relative to the cadence, because {@link #spread} is taken modulo
+	 * the dialogue interval and the point is that five consecutive positions land on five
+	 * well-separated ticks. A stride of one would put five identical figures on five
+	 * consecutive ticks — technically not in lockstep, and with a dwell of eight ticks
+	 * still four followers permanently blocked behind the first. At 7919 the five offsets
+	 * are 19 ticks apart in the shipped 100-tick interval and still distinct at the
+	 * tightest 10-tick one.
+	 *
+	 * <p>Added rather than mixed in some cleverer way so that position zero is the figure's
+	 * hash unchanged: a single follower's line order is exactly what it was before the
+	 * roster existed.
+	 */
+	private static final long INDEX_STRIDE = 7919L;
+
+	/**
+	 * The stream this follower draws its lines from. Seeded from the figure's own name and
+	 * its place in the roster — {@code String.hashCode} is specified by the language, so it
+	 * is the same number on every machine and in every session.
 	 */
 	private final Random random;
 
@@ -71,9 +98,14 @@ final class FollowerRemarks
 	 */
 	private int lastIndex = -1;
 
-	FollowerRemarks(EntourageFigure figure)
+	/**
+	 * @param figure whose lines this follower draws from
+	 * @param index  which follower of the roster this is, 0-based — see the class javadoc
+	 *               on why the figure alone is not enough
+	 */
+	FollowerRemarks(EntourageFigure figure, int index)
 	{
-		long identity = figure.name().hashCode();
+		long identity = figure.name().hashCode() + index * INDEX_STRIDE;
 		this.random = new Random(identity ^ SEED_SALT);
 		this.spread = identity;
 	}

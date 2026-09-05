@@ -117,6 +117,37 @@ public class EntouragePluginLifecycleTest
 	}
 
 	/**
+	 * <b>And the same promise with the roster the owner actually asked for.</b> The test
+	 * above spawns whatever a fresh profile spawns, which is one figure — so a teardown
+	 * that deactivated the first follower and stopped would pass it and leave four figures
+	 * standing in the world that nothing owns and nothing short of a client restart can
+	 * remove. Five is written out rather than taken from {@code MAX_FOLLOWERS}: a cap
+	 * somebody lowered to one would otherwise make this test the weaker one again while
+	 * still passing.
+	 */
+	@Test
+	public void shutDownLeavesZeroRegisteredObjectsWithAFullRoster()
+	{
+		config.setRoster(EntourageFigure.ROGUE, EntourageFigure.HANS, EntourageFigure.VANNAKA,
+			EntourageFigure.PIRATE, EntourageFigure.TURAEL);
+
+		EntourageScene scene = scene();
+		EntouragePlugin plugin = plugin(scene);
+
+		plugin.startUp();
+		plugin.onGameTick(new GameTick());
+		assertEquals("all five have to be on the client's list first", 5, client.registeredCount());
+		assertEquals(5, scene.getFollowers().size());
+
+		plugin.shutDown();
+
+		assertEquals("four leaked figures look exactly like a teardown that worked, minus four",
+			0, client.registeredCount());
+		assertTrue(scene.getFollowers().isEmpty());
+		assertTrue(overlays.registered.isEmpty());
+	}
+
+	/**
 	 * The overlay that comes back out is the one that went in.
 	 *
 	 * <p>{@code OverlayManager.remove} is an identity removal, so a {@code shutDown} that

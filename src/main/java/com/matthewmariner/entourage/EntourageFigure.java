@@ -179,12 +179,46 @@ public enum EntourageFigure
 	 * Which figure a fresh install walks with.
 	 *
 	 * <p>Named here rather than written into {@code EntourageConfig.figure()}'s default
-	 * so that the roster and the setting cannot drift apart, and so the enum still owns
-	 * the answer to "who ships?" now that {@code DEFAULT_ROSTER} is gone. The roster is
-	 * config-driven — one figure, whichever one the dropdown says — and this is the
-	 * value of that dropdown before anybody touches it.
+	 * so that the roster and the setting cannot drift apart, and so the enum owns the
+	 * answer to "who ships?". The roster is config-driven — up to five figures, whichever
+	 * ones the dropdowns say — and this is the value of the first of those dropdowns
+	 * before anybody touches it.
 	 */
 	public static final EntourageFigure DEFAULT = ROGUE;
+
+	/**
+	 * Whose body each of the five figure slots wears before anybody touches it.
+	 *
+	 * <p><b>Five different bodies, so that turning the roster up shows five different
+	 * people rather than five copies of the same one</b> — a default that made a crowd out
+	 * of one figure would read as the setting not having worked. All five are Tier A: they
+	 * declare the human rig's own stand, walk and run, so a default group moves as one
+	 * group rather than as one figure with a halberd out of step with four without.
+	 *
+	 * <p>Slot 0 is {@link #DEFAULT} and always will be — it is the {@code figure} key the
+	 * plugin has always had, and a profile written before the roster existed has to keep
+	 * meaning what it meant.
+	 *
+	 * @param index which slot, 0-based. Anything outside 0..4 answers {@link #DEFAULT},
+	 *              because this is reached from a config fallback path and a throw there
+	 *              would be an exception inside a game-tick handler.
+	 */
+	public static EntourageFigure defaultAt(int index)
+	{
+		switch (index)
+		{
+			case 1:
+				return THIEF;
+			case 2:
+				return SORCERESS;
+			case 3:
+				return HERO;
+			case 4:
+				return NECROMANCER;
+			default:
+				return DEFAULT;
+		}
+	}
 
 	private final String displayName;
 	private final int npcId;

@@ -32,16 +32,17 @@ import net.runelite.api.coords.WorldPoint;
  * model is not, so walking out of the world and back costs an activate/deactivate
  * rather than a merge and a light.
  *
- * <p><b>The one thing that does rebuild is a change of figure</b>, and it has to: the
- * figure decides which {@code NPCComposition} the model was merged out of, so a new one
- * is a new model. It is noticed here, at the top of the tick, by comparing the
- * configured figure against the one the roster was built for — rather than by
- * subscribing to {@code ConfigChanged}. One reference compare per tick cannot miss an
+ * <p><b>The one thing that does rebuild is a change of roster</b>, and it has to: a
+ * figure decides which {@code NPCComposition} its model was merged out of, so a new
+ * figure is a new model, and a follower's place in the roster decides which station of
+ * the formation it stands on. Both are noticed here, at the top of the tick, by comparing
+ * the configured list of figures against the one the roster was built for — rather than
+ * by subscribing to {@code ConfigChanged}. One list compare per tick cannot miss an
  * event, cannot fire in the wrong order relative to the tick that is about to use the
  * roster, and cannot fire while the player is logged out; and the tick is 600ms, which
  * is as immediate as a settings change needs to be. The retirement goes through the
  * same "only forget what really came off the screen" path {@link #shutdown()} uses,
- * because a figure swap must not be a way to leak the old figure.
+ * because a roster swap must not be a way to leak the old figures.
  *
  * <p><b>Client thread only.</b> Every method here reaches live client state, directly
  * or through {@link Follower}.
@@ -62,15 +63,21 @@ class EntourageScene
 	private final EntourageChatter chatter = new EntourageChatter();
 
 	/**
-	 * The figure {@link #followers} was built for, or {@code null} when there is no
-	 * roster.
+	 * The figures {@link #followers} was built for, in order, or {@code null} when there
+	 * is no roster.
 	 *
-	 * <p>Kept separately from {@code followers.get(0).getFigure()} so that a retirement
-	 * which could not let go of its object — see {@link #retire()} — does not turn into
-	 * a rebuild attempt on every subsequent tick, and one warning per tick with it.
+	 * <p>Kept separately from the followers' own figures so that a retirement which could
+	 * not let go of its objects — see {@link #retire()} — does not turn into a rebuild
+	 * attempt on every subsequent tick, and one warning per tick with it.
+	 *
+	 * <p><b>The whole list, compared by value.</b> The roster changes when a figure
+	 * changes, when the count changes, and when two figures swap places — all three are a
+	 * different set of bodies in a different order, and all three need the same rebuild.
+	 * A comparison that only watched the count would leave the wrong figures on screen;
+	 * one that only watched the first slot would leave four of them.
 	 */
 	@Nullable
-	private EntourageFigure rosterFigure;
+	private List<EntourageFigure> rosterFigures;
 
 	/**
 	 * The last resolution reported, so the log says "the anchor went away" once rather
@@ -250,7 +257,7 @@ class EntourageScene
 		int deactivated = despawnAll();
 
 		followers.removeIf(follower -> !stillRegistered(follower));
-		rosterFigure = null;
+		rosterFigures = null;
 
 		if (!followers.isEmpty())
 		{
@@ -301,35 +308,42 @@ class EntourageScene
 
 	/**
 	 * The followers to run this tick, built on first use and rebuilt when the configured
-	 * figure changes.
+	 * roster changes.
 	 *
 	 * <p>Built lazily rather than in the constructor so that a plugin which is enabled
 	 * and never logged in has allocated nothing.
 	 *
-	 * <p><b>One follower.</b> Getting a single figure to walk correctly is what this
-	 * plugin does today; a formation of four figures doing it wrong is not four times
-	 * the feature. This loop is the seam a formation extends — it is already a list, and
-	 * {@link FormationSlot} already turns a slot into a tile — and nothing else has to
-	 * change to make a second one appear.
+	 * <p><b>Each follower keeps the index it was built with</b>, and that index is what
+	 * {@link EntourageFormation} turns into a station — so the roster order in the
+	 * settings really is the order the figures stand in. Rebuilding rather than
+	 * renumbering is what makes that safe: a follower's index never changes under it, so
+	 * nothing has to reason about a figure whose station moved without it walking there.
 	 */
 	private List<Follower> roster(EntourageSettings settings)
 	{
-		EntourageFigure figure = settings.getFigure();
+		List<EntourageFigure> figures = settings.getFigures();
 
-		if (rosterFigure != null && rosterFigure != figure)
+		if (rosterFigures != null && !rosterFigures.equals(figures))
 		{
-			log.debug("figure changed from {} to {}, retiring the roster", rosterFigure, figure);
+			log.debug("roster changed from {} to {}, retiring it", rosterFigures, figures);
 			retire();
 		}
 
 		if (followers.isEmpty())
 		{
-			// The starting tile is a placeholder: a follower that is not active places
-			// itself on the anchor before it spawns, every tick, so this is only ever
-			// the value held for the few microseconds before that happens.
-			followers.add(new Follower(client, figure, new WorldPoint(0, 0, 0)));
-			rosterFigure = figure;
-			log.debug("roster is {} follower(s): {}", followers.size(), figure.label());
+			for (int index = 0; index < figures.size(); index++)
+			{
+				// The starting tile is a placeholder: a follower that is not active places
+				// itself on the anchor before it spawns, every tick, so this is only ever
+				// the value held for the few microseconds before that happens.
+				followers.add(new Follower(client, figures.get(index), index,
+					new WorldPoint(0, 0, 0)));
+			}
+
+			// The list out of EntourageSettings is unmodifiable, so keeping the reference
+			// is keeping a snapshot rather than aliasing something that can change.
+			rosterFigures = figures;
+			log.debug("roster is {} follower(s): {}", followers.size(), figures);
 		}
 
 		return followers;

@@ -139,6 +139,36 @@ public class EntourageOverlayTest
 	}
 
 	/**
+	 * <b>The loop walks the whole roster, not the first of it.</b> Until there were five
+	 * followers this was unfalsifiable: with one on screen, a render that drew
+	 * {@code followers.get(0)} and returned is indistinguishable from one that iterates.
+	 * Five different figures with the name label on is five different strings, so a loop
+	 * that stopped early both draws too few and draws the wrong set.
+	 */
+	@Test
+	public void everyFollowerInTheRosterIsDrawnRatherThanJustTheFirst()
+	{
+		EntourageFigure[] roster = {
+			EntourageFigure.ROGUE, EntourageFigure.HANS, EntourageFigure.VANNAKA,
+			EntourageFigure.PIRATE, EntourageFigure.TURAEL
+		};
+		config.setRoster(roster).setDialogue(false).setNameLabel(true);
+
+		scene.onGameTick();
+		assertEquals("the fixture has to spawn all five", 5, client.registeredCount());
+
+		RecordingOverlay overlay = new RecordingOverlay();
+		overlay.render(graphics);
+
+		assertEquals(5, overlay.drawn.size());
+		for (int index = 0; index < roster.length; index++)
+		{
+			assertEquals("follower " + index + "'s name is missing or out of order",
+				roster[index].getDisplayName(), overlay.drawn.get(index));
+		}
+	}
+
+	/**
 	 * <b>The two switches are two switches.</b> The early return only fires when
 	 * <i>both</i> are off, so with the name label on and dialogue off there is a live
 	 * follower, a live overlay, and a line that must not be drawn — which is the one

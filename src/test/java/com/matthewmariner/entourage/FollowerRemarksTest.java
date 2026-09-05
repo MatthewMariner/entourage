@@ -10,6 +10,7 @@ import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -27,7 +28,7 @@ public class FollowerRemarksTest
 
 	private static FollowerRemarks remarks()
 	{
-		return new FollowerRemarks(EntourageFigure.ROGUE);
+		return new FollowerRemarks(EntourageFigure.ROGUE, 0);
 	}
 
 	@Test
@@ -183,8 +184,8 @@ public class FollowerRemarksTest
 	@Test
 	public void theOrderIsTheSameEverySession()
 	{
-		assertEquals(sequence(new FollowerRemarks(EntourageFigure.VANNAKA), 40),
-			sequence(new FollowerRemarks(EntourageFigure.VANNAKA), 40));
+		assertEquals(sequence(new FollowerRemarks(EntourageFigure.VANNAKA, 0), 40),
+			sequence(new FollowerRemarks(EntourageFigure.VANNAKA, 0), 40));
 	}
 
 	/**
@@ -198,8 +199,8 @@ public class FollowerRemarksTest
 	@Test
 	public void twoFiguresDoNotSayTheirLinesInLockstep()
 	{
-		List<String> rogue = sequence(new FollowerRemarks(EntourageFigure.ROGUE), 40);
-		List<String> hans = sequence(new FollowerRemarks(EntourageFigure.HANS), 40);
+		List<String> rogue = sequence(new FollowerRemarks(EntourageFigure.ROGUE, 0), 40);
+		List<String> hans = sequence(new FollowerRemarks(EntourageFigure.HANS, 0), 40);
 
 		assertNotEquals("two figures drawing the same sequence is one stream, not two",
 			rogue, hans);
@@ -213,7 +214,7 @@ public class FollowerRemarksTest
 	public void twoFiguresAreNotDueOnTheSameTicks()
 	{
 		FollowerRemarks rogue = remarks();
-		FollowerRemarks hans = new FollowerRemarks(EntourageFigure.HANS);
+		FollowerRemarks hans = new FollowerRemarks(EntourageFigure.HANS, 0);
 		int interval = EntourageSettings.DEFAULT_DIALOGUE_INTERVAL_TICKS;
 
 		boolean everDiffered = false;
@@ -226,6 +227,81 @@ public class FollowerRemarksTest
 		}
 
 		assertTrue("two figures due on exactly the same ticks are one figure twice", everDiffered);
+	}
+
+	/**
+	 * <b>The same claim again, for the roster the user can actually build: five copies of
+	 * one figure.</b> Nothing stops somebody putting the Rogue in all five slots, and the
+	 * figure's name hash is the same number five times — so on the figure alone all five
+	 * would share one stream and say the same line at the same moment forever. The two
+	 * tests above cannot see it, because both of them use two <i>different</i> figures.
+	 */
+	@Test
+	public void twoCopiesOfOneFigureDoNotSayTheirLinesInLockstep()
+	{
+		List<String> first = sequence(new FollowerRemarks(EntourageFigure.ROGUE, 0), 40);
+		List<String> second = sequence(new FollowerRemarks(EntourageFigure.ROGUE, 1), 40);
+
+		assertNotEquals("two Rogues drawing the same sequence is one stream, not two",
+			first, second);
+	}
+
+	/**
+	 * <b>And whose turn it is to speak, which is the half that actually bites.</b> With
+	 * {@link EntourageChatter#MAX_CONCURRENT_LINES} at one, five identical figures becoming
+	 * due on exactly the same tick means the first of them takes every turn and the other
+	 * four never say a word for the whole session — a bug that looks, from outside, like
+	 * four followers with no dialogue.
+	 *
+	 * <p>Checked at both ends of the cadence: the stagger is taken modulo the interval, so
+	 * a stride that separated five followers nicely at a hundred ticks could still fold
+	 * them together at ten.
+	 */
+	@Test
+	public void fiveCopiesOfOneFigureAreDueOnFiveDifferentTicks()
+	{
+		for (int interval : new int[]{
+			EntourageSettings.MIN_DIALOGUE_INTERVAL_TICKS,
+			EntourageSettings.DEFAULT_DIALOGUE_INTERVAL_TICKS,
+			EntourageSettings.MAX_DIALOGUE_INTERVAL_TICKS})
+		{
+			Set<Integer> dueTicks = new HashSet<>();
+
+			for (int index = 0; index < EntourageSettings.MAX_FOLLOWERS; index++)
+			{
+				FollowerRemarks remarks = new FollowerRemarks(EntourageFigure.ROGUE, index);
+
+				Integer due = null;
+				for (int tick = 1; tick <= interval && due == null; tick++)
+				{
+					if (remarks.dueAt(tick, interval))
+					{
+						due = tick;
+					}
+				}
+
+				assertNotNull("copy " + index + " is never due at interval " + interval, due);
+				assertTrue("copies " + index + " and an earlier one are due on tick " + due
+					+ " at interval " + interval, dueTicks.add(due));
+			}
+
+			assertEquals(EntourageSettings.MAX_FOLLOWERS, dueTicks.size());
+		}
+	}
+
+	/**
+	 * The first slot's stream is exactly what a lone follower's always was. The stagger is
+	 * added to the figure's hash, so position zero adds nothing — which is what keeps a
+	 * single follower's order of lines the same as it was before the roster existed.
+	 */
+	@Test
+	public void theFirstSlotIsUnchangedByTheRosterExisting()
+	{
+		assertEquals(sequence(new FollowerRemarks(EntourageFigure.VANNAKA, 0), 40),
+			sequence(new FollowerRemarks(EntourageFigure.VANNAKA, 0), 40));
+		assertNotEquals("and the second slot is not the first one twice",
+			sequence(new FollowerRemarks(EntourageFigure.VANNAKA, 0), 40),
+			sequence(new FollowerRemarks(EntourageFigure.VANNAKA, 1), 40));
 	}
 
 	/**
@@ -271,7 +347,7 @@ public class FollowerRemarksTest
 
 		for (EntourageFigure figure : EntourageFigure.values())
 		{
-			FollowerRemarks remarks = new FollowerRemarks(figure);
+			FollowerRemarks remarks = new FollowerRemarks(figure, 0);
 			boolean due = false;
 
 			for (int tick = 1; tick <= interval; tick++)

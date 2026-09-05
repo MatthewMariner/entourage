@@ -133,6 +133,20 @@ final class Follower
 
 	private final Client client;
 	private final EntourageFigure figure;
+
+	/**
+	 * Which follower of the roster this is, 0-based.
+	 *
+	 * <p>It is the whole of what makes one follower different from another beyond the body
+	 * it wears: {@link EntourageFormation} turns it into a station, and
+	 * {@link FollowerRemarks} mixes it into the seed so that two followers wearing the
+	 * <i>same</i> figure still draw from two streams and still become due on two different
+	 * ticks. Fixed for this follower's whole life, because a roster whose size or
+	 * membership changes is retired and rebuilt rather than renumbered — see
+	 * {@link EntourageScene}.
+	 */
+	private final int index;
+
 	private final FollowerWalk walk;
 
 	/**
@@ -192,17 +206,24 @@ final class Follower
 	private int attempts;
 	private int ticksSinceAttempt;
 
-	Follower(Client client, EntourageFigure figure, WorldPoint start)
+	Follower(Client client, EntourageFigure figure, int index, WorldPoint start)
 	{
 		this.client = client;
 		this.figure = figure;
+		this.index = index;
 		this.walk = new FollowerWalk(start);
-		this.remarks = new FollowerRemarks(figure);
+		this.remarks = new FollowerRemarks(figure, index);
 	}
 
 	EntourageFigure getFigure()
 	{
 		return figure;
+	}
+
+	/** @return which follower of the roster this is, 0-based */
+	int getIndex()
+	{
+		return index;
 	}
 
 	FollowerWalk getWalk()
@@ -360,7 +381,7 @@ final class Follower
 			return;
 		}
 
-		walk.tick(anchor.getTile(), worldView, settings);
+		walk.tick(anchor.getTile(), worldView, settings, index);
 
 		// select() compares controllers by identity, so a follower mid-walk re-selects
 		// the one it already has and the object is left alone — which is what keeps the

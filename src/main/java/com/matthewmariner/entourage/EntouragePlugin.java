@@ -21,12 +21,14 @@ import net.runelite.client.ui.overlay.OverlayManager;
 /**
  * A cosmetic figure that walks with you and holds a pose when you stop.
  *
- * <p>Singular on purpose: {@link EntourageScene} spawns one figure — whichever one
- * {@link EntourageConfig#figure()} names — and the plugin is named for what it grows
- * into rather than for what it currently spawns. The user-facing strings —
+ * <p>{@link EntourageScene} spawns one to five figures — whichever ones
+ * {@link EntourageConfig}'s five figure slots name, as many of them as
+ * {@link EntourageConfig#followers()} says — standing in the shape
+ * {@link EntourageConfig#formation()} names. The user-facing strings,
  * {@code @PluginDescriptor}'s {@code description} below and
- * {@code runelite-plugin.properties} — say one for the same reason, and they said
- * "a small group" in two slightly different wordings until a review noticed.
+ * {@code runelite-plugin.properties}, are byte-identical to each other and are changed
+ * together; they said "a small group" in two slightly different wordings, while the
+ * plugin shipped one figure, until a review noticed.
  *
  * <p><b>The settings are read by the scene, not by this class.</b> There is a
  * {@code @Provides} for the config interface at the bottom of this file and deliberately
@@ -78,12 +80,13 @@ import net.runelite.client.ui.overlay.OverlayManager;
 @Slf4j
 @PluginDescriptor(
 	name = "Entourage",
-	// Singular, and byte-identical to runelite-plugin.properties. This is the
-	// in-client panel's copy of a string the hub listing also carries; the two
-	// used to differ from each other, and both used to promise a group while the
-	// plugin shipped one figure. Change them together.
-	description = "A cosmetic figure of your choosing that walks with you, poses when you stop and says the odd thing",
-	tags = {"cosmetic", "follower", "entourage", "immersion", "npc", "dialogue"}
+	// Byte-identical to runelite-plugin.properties. This is the in-client panel's
+	// copy of a string the hub listing also carries; the two used to differ from
+	// each other, and both used to promise a group while the plugin shipped one
+	// figure. Change them together — and only when the roster really does what
+	// they say, which since the formation slice it does.
+	description = "Up to five cosmetic figures of your choosing that walk with you in formation, pose when you stop and say the odd thing",
+	tags = {"cosmetic", "follower", "entourage", "immersion", "npc", "dialogue", "formation"}
 )
 public class EntouragePlugin extends Plugin
 {

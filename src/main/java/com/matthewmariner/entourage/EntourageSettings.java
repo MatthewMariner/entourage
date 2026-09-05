@@ -41,6 +41,53 @@ import net.runelite.api.Constants;
 final class EntourageSettings
 {
 	/**
+	 * The smallest roster: one follower.
+	 *
+	 * <p>Zero is not offered, and the reason is the same one that keeps a master on/off
+	 * switch out of this config: the plugin's own toggle in the plugin list already means
+	 * "none of this", and a second control that means the same thing is only a way for the
+	 * two to disagree.
+	 */
+	static final int MIN_FOLLOWERS = 1;
+
+	/**
+	 * The largest: five, which is what was asked for — and the number the budget was
+	 * checked against rather than assumed.
+	 *
+	 * <p><b>The figures are inherited, not measured.</b> {@code ../lively-cities}'
+	 * {@code RenderPolicy} caps active cosmetic objects at <b>80</b> and model builds at
+	 * <b>9 per frame</b>, the latter derived from a 16.667ms frame less 3ms of region
+	 * loading and 151µs of overhead, over 1400µs per build. Five followers are five
+	 * registered objects and — because a model is built once and kept, see
+	 * {@link Follower} — at most five builds, all of them on the tick the roster first
+	 * spawns. Both are comfortably inside those caps, so this plugin adds no
+	 * {@code RenderPolicy} of its own: a budget guard that can never fire is a class
+	 * nobody maintains.
+	 *
+	 * <p><b>What those numbers do not describe is the per-tick cost</b>, because Lively
+	 * Cities' figures are mostly idle and these are mostly moving. The number to hold in
+	 * mind is <b>ten collision checks per game tick</b>: five followers, each allowed
+	 * {@link FollowerWalk#RUN_STEPS_PER_TICK} steps, each step one
+	 * {@link WalkableStep#verdict} — which is a handful of null checks, two bounds
+	 * comparisons and one {@code WorldArea.canTravelInDirection}. That is per <i>tick</i>,
+	 * i.e. sixteen times a second at most, not per frame. <b>No frame cost has been
+	 * measured for this plugin</b>, here or anywhere else in it, and this constant does
+	 * not pretend otherwise; five is the number the owner asked for and the number the
+	 * inherited budget clears, not a number a profiler produced.
+	 */
+	static final int MAX_FOLLOWERS = 5;
+
+	/**
+	 * One follower, which is what the plugin shipped with.
+	 *
+	 * <p>A fresh profile and a profile written before the roster existed have to mean the
+	 * same thing, and this is what makes them: the first figure slot keeps the {@code
+	 * figure} key it always had, and nobody who never touches this dial notices that four
+	 * more slots appeared.
+	 */
+	static final int DEFAULT_FOLLOWERS = 1;
+
+	/**
 	 * The closest a follower may be told to stand: one tile.
 	 *
 	 * <p>Zero would put it on the player's own tile, which is not a formation but a
@@ -63,14 +110,37 @@ final class EntourageSettings
 	static final int DEFAULT_FOLLOW_DISTANCE = 1;
 
 	/**
-	 * The shortest recall distance offered: six tiles.
+	 * The furthest out any formation will ever place a follower: six tiles.
 	 *
-	 * <p>Below this a recall stops being a rescue and becomes the normal way the
-	 * follower travels — six tiles is already about the width of a room, and a follower
-	 * that pops back to you every time you round a corner reads as broken rather than
-	 * as attentive.
+	 * <p>{@link MAX_FOLLOW_DISTANCE} for the first rank plus one tile per rank after it,
+	 * and the deepest shape is a column of {@link #MAX_FOLLOWERS} — so
+	 * {@code 2 + (5 - 1)}. Written out rather than derived from
+	 * {@link EntourageFormation}'s tables because it is a bound on those tables:
+	 * {@code EntourageFormationTest} walks every formation at every roster size and every
+	 * follow distance and asserts nothing exceeds it, which is a guard on the shapes
+	 * rather than a restatement of them. A literal for the same reason: written as
+	 * {@code MAX_FOLLOW_DISTANCE + MAX_FOLLOWERS - 1} it would move whenever either of
+	 * those did, and the number below into {@link #MIN_RECALL_DISTANCE} with it, so a
+	 * roster of nine would silently look correct.
 	 */
-	static final int MIN_RECALL_DISTANCE = 6;
+	static final int MAX_STATION_DISTANCE = 6;
+
+	/**
+	 * The shortest recall distance offered: eight tiles.
+	 *
+	 * <p><b>Six until the roster grew, and it had to move.</b> A recall fires when the
+	 * follower is further from the player than this, and with five followers a column
+	 * puts the last of them {@link #MAX_STATION_DISTANCE} tiles out — so a floor of six
+	 * would recall a follower for standing exactly where it was told to, every tick,
+	 * forever. Eight is that furthest station plus two tiles of slack, which is the
+	 * smallest honest number rather than a round one.
+	 *
+	 * <p>The original reasoning still applies on top of it: below this a recall stops
+	 * being a rescue and becomes the normal way the follower travels, and a follower that
+	 * pops back to you every time you round a corner reads as broken rather than as
+	 * attentive.
+	 */
+	static final int MIN_RECALL_DISTANCE = 8;
 
 	/**
 	 * The longest: twenty tiles.
@@ -172,10 +242,17 @@ final class EntourageSettings
 	 */
 	static final char CUSTOM_LINE_SEPARATOR = ',';
 
-	private final EntourageFigure figure;
+	/**
+	 * Who walks with you, in roster order. Never empty, never longer than
+	 * {@link #MAX_FOLLOWERS}, and unmodifiable — {@link EntourageScene} keeps the
+	 * reference to compare next tick's roster against, so a list a caller could edit
+	 * would be a roster change that never got noticed.
+	 */
+	private final List<EntourageFigure> figures;
+
 	private final int followDistance;
 	private final int recallDistance;
-	private final FormationSlot formationSlot;
+	private final EntourageFormation formation;
 	private final FollowerFacing facing;
 	private final boolean canRun;
 	private final EntouragePose idlePose;
@@ -185,15 +262,15 @@ final class EntourageSettings
 	private final int dialogueDwellTicks;
 	private final List<String> customLines;
 
-	private EntourageSettings(EntourageFigure figure, int followDistance, int recallDistance,
-		FormationSlot formationSlot, FollowerFacing facing, boolean canRun,
+	private EntourageSettings(List<EntourageFigure> figures, int followDistance, int recallDistance,
+		EntourageFormation formation, FollowerFacing facing, boolean canRun,
 		EntouragePose idlePose, boolean hideInInstances, boolean dialogue,
 		int dialogueIntervalTicks, int dialogueDwellTicks, List<String> customLines)
 	{
-		this.figure = figure;
+		this.figures = figures;
 		this.followDistance = followDistance;
 		this.recallDistance = recallDistance;
-		this.formationSlot = formationSlot;
+		this.formation = formation;
 		this.facing = facing;
 		this.canRun = canRun;
 		this.idlePose = idlePose;
@@ -215,16 +292,15 @@ final class EntourageSettings
 	 */
 	static EntourageSettings from(EntourageConfig config)
 	{
-		EntourageFigure figure = config.figure();
-		FormationSlot slot = config.formationSlot();
+		EntourageFormation formation = config.formation();
 		FollowerFacing facing = config.facing();
 		EntouragePose pose = config.idlePose();
 
 		return new EntourageSettings(
-			figure == null ? EntourageFigure.DEFAULT : figure,
+			readFigures(config),
 			clamp(config.followDistance(), MIN_FOLLOW_DISTANCE, MAX_FOLLOW_DISTANCE),
 			clamp(config.recallDistance(), MIN_RECALL_DISTANCE, MAX_RECALL_DISTANCE),
-			slot == null ? FormationSlot.BEHIND : slot,
+			formation == null ? EntourageFormation.DEFAULT : formation,
 			facing == null ? FollowerFacing.AT_ME : facing,
 			config.canRun(),
 			pose == null ? EntouragePose.FIGURE_DEFAULT : pose,
@@ -233,6 +309,63 @@ final class EntourageSettings
 			effectiveIntervalTicks(config.dialogueIntervalTicks()),
 			effectiveDwellTicks(config.dialogueDwellTicks(), config.dialogueIntervalTicks()),
 			parseLines(config.dialogueLines()));
+	}
+
+	/**
+	 * The roster, read out of the five figure slots.
+	 *
+	 * <p><b>The count decides how many of the five are read, and the ones past it are not
+	 * read at all.</b> A slot the user has turned off is a slot whose dropdown still holds
+	 * whatever they last set it to — RuneLite has no way to blank one — so "how many" and
+	 * "who" have to be separate questions, and the count is the one that answers whether a
+	 * figure is in the entourage.
+	 *
+	 * @return the figures, in roster order, unmodifiable and never empty
+	 */
+	private static List<EntourageFigure> readFigures(EntourageConfig config)
+	{
+		int followers = clamp(config.followers(), MIN_FOLLOWERS, MAX_FOLLOWERS);
+
+		List<EntourageFigure> figures = new ArrayList<>(followers);
+		for (int index = 0; index < followers; index++)
+		{
+			figures.add(figureAt(config, index));
+		}
+
+		return Collections.unmodifiableList(figures);
+	}
+
+	/**
+	 * @param index which slot, 0-based
+	 * @return the figure that slot names. Null-checked for the same reason the enums above
+	 * are: {@code ConfigManager} resolves an unknown enum name to the interface default
+	 * rather than to null, so this guards an implementation this plugin does not own — and
+	 * the cost of being wrong is an NPE inside a game-tick handler rather than a
+	 * wrong-looking follower.
+	 */
+	private static EntourageFigure figureAt(EntourageConfig config, int index)
+	{
+		EntourageFigure figure;
+		switch (index)
+		{
+			case 1:
+				figure = config.figure2();
+				break;
+			case 2:
+				figure = config.figure3();
+				break;
+			case 3:
+				figure = config.figure4();
+				break;
+			case 4:
+				figure = config.figure5();
+				break;
+			default:
+				figure = config.figure();
+				break;
+		}
+
+		return figure == null ? EntourageFigure.defaultAt(index) : figure;
 	}
 
 	/**
@@ -331,10 +464,19 @@ final class EntourageSettings
 		return value < min ? min : (value > max ? max : value);
 	}
 
-	/** @return whose body the follower wears */
-	EntourageFigure getFigure()
+	/**
+	 * @return whose body each follower wears, in roster order. Never empty, never longer
+	 * than {@link #MAX_FOLLOWERS}, and unmodifiable.
+	 */
+	List<EntourageFigure> getFigures()
 	{
-		return figure;
+		return figures;
+	}
+
+	/** @return how many followers there are, 1..{@link #MAX_FOLLOWERS} */
+	int getRosterSize()
+	{
+		return figures.size();
 	}
 
 	/** @return how many tiles out the formation slot sits, 1..2 */
@@ -343,16 +485,16 @@ final class EntourageSettings
 		return followDistance;
 	}
 
-	/** @return how far behind the player the follower may get before it is put back, 6..20 */
+	/** @return how far behind the player a follower may get before it is put back, 8..20 */
 	int getRecallDistance()
 	{
 		return recallDistance;
 	}
 
-	/** @return which side of the player the follower wants to be on */
-	FormationSlot getFormationSlot()
+	/** @return the shape the entourage wants to stand in */
+	EntourageFormation getFormation()
 	{
-		return formationSlot;
+		return formation;
 	}
 
 	/** @return which way the follower points once it has stopped walking */

@@ -22,15 +22,20 @@ import static org.junit.Assert.assertTrue;
  * collision maps — with no client anywhere. That is the point of the split: the decision
  * half of the movement system is arithmetic, and arithmetic can be held to account.
  *
- * <p><b>A note on the fixtures.</b> A follower walks to one exact slot tile, and the
- * slot depends on the direction the player last travelled — which starts out as north,
+ * <p><b>A note on the fixtures.</b> A follower walks to one exact station tile, and the
+ * station depends on the direction the player last travelled — which starts out as north,
  * because a player who has never moved has no direction of travel. Tests that want the
- * follower and its slot on the same row therefore use {@link FormationSlot#LEFT}, which
- * with a northward heading sits due west of the player: that keeps the geometry
+ * follower and its station on the same row therefore use {@link EntourageFormation#LEFT},
+ * which with a northward heading sits due west of the player: that keeps the geometry
  * collinear and one-dimensional, so an assertion about a step is about the step rather
- * than about the diagonal it happens to be on. Tests about the slot itself use
+ * than about the diagonal it happens to be on. Tests about the station itself use
  * {@link FollowerWalk#stationTile} rather than restating the arithmetic
- * {@code FormationSlotTest} already pins.
+ * {@code EntourageFormationTest} already pins.
+ *
+ * <p><b>Everything here drives one follower</b>, through the {@code tick} overload that
+ * means "on its own". That is not a gap: a roster is N of these, each handed its own
+ * index, and where each index stands is {@code EntourageFormationTest}'s subject. What
+ * is here is the movement, and movement does not depend on how many others there are.
  */
 public class FollowerWalkTest
 {
@@ -52,7 +57,7 @@ public class FollowerWalkTest
 	 */
 	private static EntourageSettings collinear()
 	{
-		return new FakeConfig().setFormationSlot(FormationSlot.LEFT).settings();
+		return new FakeConfig().setFormation(EntourageFormation.LEFT).settings();
 	}
 
 	// --- One tile per game tick, or two -------------------------------------
@@ -176,20 +181,29 @@ public class FollowerWalkTest
 	}
 
 	/**
-	 * The three slots put the follower on three different tiles for the same journey,
-	 * which is the whole of what the setting promises. Asserted against the tiles rather
-	 * than against {@code stationTile}, so a slot that silently agreed with another one
-	 * cannot pass by agreeing with itself.
+	 * The formations walk the follower to different tiles for the same journey, which is
+	 * the whole of what the setting promises. Asserted against the tiles the follower
+	 * really ended on rather than only against {@code stationTile}, so a shape that
+	 * silently agreed with another one cannot pass by agreeing with itself.
+	 *
+	 * <p><b>Six resting places out of seven formations, and that is deliberate.</b> With
+	 * one follower a line abreast is a figure at your left shoulder, which is exactly what
+	 * "On my left" already is — there are only eight tiles to put a single figure on, and
+	 * the shapes are told apart by what they do with the other four. The literal below is
+	 * a literal on purpose: written as {@code values().length - 1} it would follow the enum
+	 * anywhere, including to a second pair of formations that had quietly collapsed into
+	 * one. {@code EntourageFormationTest} is where the seven are pinned apart at a full
+	 * roster.
 	 */
 	@Test
-	public void theFormationSettingDecidesWhichSideItWalksOn()
+	public void theFormationSettingDecidesWhereItWalksTo()
 	{
 		Set<WorldPoint> restingPlaces = new LinkedHashSet<>();
 
-		for (FormationSlot slot : FormationSlot.values())
+		for (EntourageFormation formation : EntourageFormation.values())
 		{
 			FakeWorldView view = scene();
-			EntourageSettings settings = new FakeConfig().setFormationSlot(slot).settings();
+			EntourageSettings settings = new FakeConfig().setFormation(formation).settings();
 			FollowerWalk walk = new FollowerWalk(START);
 			WorldPoint anchor = START.dx(5);
 
@@ -198,12 +212,14 @@ public class FollowerWalkTest
 				walk.tick(anchor, view, settings);
 			}
 
-			assertFalse(slot.name(), walk.isMoving());
-			assertTrue(slot.name() + " settled where another slot did",
-				restingPlaces.add(walk.currentTile()));
+			assertFalse(formation.name(), walk.isMoving());
+			assertEquals(formation.name() + " stopped somewhere that is not its own station",
+				walk.stationTile(anchor, settings), walk.currentTile());
+			restingPlaces.add(walk.currentTile());
 		}
 
-		assertEquals(FormationSlot.values().length, restingPlaces.size());
+		assertEquals("only the line abreast of one may share a tile with another shape",
+			6, restingPlaces.size());
 	}
 
 	// --- The heading, which is what "behind" is measured against -------------
@@ -300,29 +316,39 @@ public class FollowerWalkTest
 	}
 
 	/**
-	 * A heading of {@code (0, 0)} has no left and no right — every slot collapses onto
-	 * the player's own tile — so a player who stops walking must not zero it. Checked
-	 * from the other end: whatever the anchor does, the slot is never the anchor.
+	 * A heading of {@code (0, 0)} has no left and no right, so a player who stops walking
+	 * must not zero it. Checked from the other end: whatever the anchor does, the station
+	 * is never the anchor — for every formation, and for every follower of a full roster,
+	 * because the shapes that only exist above one follower have their own headings to get
+	 * wrong.
 	 */
 	@Test
-	public void theSlotIsNeverThePlayersOwnTileHoweverTheAnchorMoves()
+	public void theStationIsNeverThePlayersOwnTileHoweverTheAnchorMoves()
 	{
 		FakeWorldView view = scene();
 		Random random = new Random(20260904L);
 
-		for (FormationSlot slot : FormationSlot.values())
+		for (EntourageFormation formation : EntourageFormation.values())
 		{
-			EntourageSettings settings = new FakeConfig().setFormationSlot(slot).settings();
-			FollowerWalk walk = new FollowerWalk(START);
-			WorldPoint anchor = START;
+			EntourageSettings settings = new FakeConfig()
+				.setFormation(formation)
+				.setFollowers(EntourageSettings.MAX_FOLLOWERS)
+				.settings();
 
-			for (int tick = 0; tick < 200; tick++)
+			for (int index = 0; index < EntourageSettings.MAX_FOLLOWERS; index++)
 			{
-				anchor = anchor.dx(random.nextInt(3) - 1).dy(random.nextInt(3) - 1);
-				walk.tick(anchor, view, settings);
+				FollowerWalk walk = new FollowerWalk(START);
+				WorldPoint anchor = START;
 
-				assertNotEquals(slot.name() + " collapsed onto the player at tick " + tick,
-					anchor, walk.stationTile(anchor, settings));
+				for (int tick = 0; tick < 200; tick++)
+				{
+					anchor = anchor.dx(random.nextInt(3) - 1).dy(random.nextInt(3) - 1);
+					walk.tick(anchor, view, settings, index);
+
+					assertNotEquals(formation.name() + " follower " + index
+							+ " collapsed onto the player at tick " + tick,
+						anchor, walk.stationTile(anchor, settings, index));
+				}
 			}
 		}
 	}
@@ -685,7 +711,7 @@ public class FollowerWalkTest
 		FakeWorldView view = scene();
 		FollowerWalk walk = new FollowerWalk(START);
 		EntourageSettings settings = new FakeConfig()
-			.setFormationSlot(FormationSlot.LEFT)
+			.setFormation(EntourageFormation.LEFT)
 			.setCanRun(false)
 			.settings();
 		WorldPoint anchor = START.dx(5);
@@ -717,9 +743,9 @@ public class FollowerWalkTest
 		FakeWorldView view = FakeWorldView.rectangular(3200, 3072, 400, 104, 0);
 		WorldPoint start = view.tileAt(10, 50);
 		EntourageSettings running = new FakeConfig()
-			.setFormationSlot(FormationSlot.LEFT).settings();
+			.setFormation(EntourageFormation.LEFT).settings();
 		EntourageSettings walking = new FakeConfig()
-			.setFormationSlot(FormationSlot.LEFT).setCanRun(false).settings();
+			.setFormation(EntourageFormation.LEFT).setCanRun(false).settings();
 		FollowerWalk walk = new FollowerWalk(start);
 		WorldPoint anchor = start.dx(11);
 
@@ -787,7 +813,7 @@ public class FollowerWalkTest
 		// refused; east is clear and still gets the follower closer.
 		FakeWorldView view = scene().block(START.dy(1));
 		EntourageSettings settings = new FakeConfig()
-			.setFormationSlot(FormationSlot.LEFT)
+			.setFormation(EntourageFormation.LEFT)
 			.setCanRun(false)
 			.settings();
 		FollowerWalk walk = new FollowerWalk(START);

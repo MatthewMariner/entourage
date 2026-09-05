@@ -30,12 +30,20 @@ import net.runelite.client.config.Range;
  *
  * <p><b>What is deliberately absent.</b>
  * <ul>
- *   <li><b>A roster size.</b> The plugin spawns one figure. Growing that is a
- *       formation problem — where the second one stands, how they avoid each other,
- *       what happens when only one of them can reach its slot — and a number here would
- *       promise it before any of that exists.</li>
+ *   <li><b>A way to blank a figure slot.</b> The roster is a count plus five dropdowns,
+ *       not five dropdowns one of which may say "none". A "none" entry would have to live
+ *       in {@link EntourageFigure}, where every other constant is a body that resolves,
+ *       carries three animations and has a display name — and every test that walks that
+ *       enum would have to grow an exception for the one member that has none of those.
+ *       A count answers "how many walk with me" in one control and leaves the figure enum
+ *       meaning exactly one thing.</li>
+ *   <li><b>A per-follower distance, slot or pose.</b> Five copies of every movement
+ *       setting is thirty dropdowns to describe a shape that
+ *       {@link EntourageFormation} names in one. The formation decides where each
+ *       follower stands; these settings apply to all of them.</li>
  *   <li><b>A master on/off.</b> That is the plugin's own toggle in the plugin list. A
- *       second one would only be a way for the two to disagree.</li>
+ *       second one would only be a way for the two to disagree — which is also why the
+ *       roster count starts at one rather than at zero.</li>
  *   <li><b>A walking emote.</b> See {@link EntouragePose} — the client's second
  *       animation slot is never advanced for a {@code RuneLiteObject}, so a walk parked
  *       in it would freeze on its first frame.</li>
@@ -54,6 +62,13 @@ public interface EntourageConfig extends Config
 	 * plugin's own name and nothing else's.
 	 */
 	String GROUP = "entourage";
+
+	@ConfigSection(
+		name = "Roster",
+		description = "How many figures walk with you, and whose bodies they wear.",
+		position = 5
+	)
+	String rosterSection = "roster";
 
 	@ConfigSection(
 		name = "Movement",
@@ -77,31 +92,100 @@ public interface EntourageConfig extends Config
 	String dialogueSection = "dialogue";
 
 	@ConfigItem(
-		keyName = "figure",
-		name = "Figure",
-		description = "Whose body the follower wears. Every one of these is built from the game's "
-			+ "own cache, and each carries the stand and walk animations that NPC actually uses — "
-			+ "so a figure holding a polearm walks like one. Changing this rebuilds the follower "
-			+ "on the next game tick.",
-		position = 1
-	)
-	default EntourageFigure figure()
-	{
-		return EntourageFigure.DEFAULT;
-	}
-
-	@ConfigItem(
 		keyName = "hideInInstances",
 		name = "Hide in instances",
-		description = "Takes the follower off the screen anywhere the game hands out its own private "
+		description = "Takes the entourage off the screen anywhere the game hands out its own private "
 			+ "copy of an area — a raid, a quest cutscene, the Inferno. Off by default, because a "
 			+ "Player Owned House is an instance too and that is where a cosmetic follower is most "
 			+ "wanted.",
-		position = 2
+		position = 1
 	)
 	default boolean hideInInstances()
 	{
 		return false;
+	}
+
+	// --- Roster --------------------------------------------------------------
+
+	@ConfigItem(
+		keyName = "followers",
+		name = "Followers",
+		description = "How many figures walk with you, from one to five. The figure dropdowns below "
+			+ "this number are the ones in play; the rest keep whatever they are set to and are "
+			+ "ignored. Changing this rebuilds the entourage on the next game tick.",
+		position = 1,
+		section = rosterSection
+	)
+	@Range(min = EntourageSettings.MIN_FOLLOWERS, max = EntourageSettings.MAX_FOLLOWERS)
+	default int followers()
+	{
+		return EntourageSettings.DEFAULT_FOLLOWERS;
+	}
+
+	@ConfigItem(
+		// "figure" and not "figure1": it is the key this setting has always had, and
+		// renaming it to match its four new neighbours would silently reset the one
+		// setting every existing profile has.
+		keyName = "figure",
+		name = "Figure 1",
+		description = "Whose body the first follower wears. Every one of these is built from the "
+			+ "game's own cache, and each carries the stand and walk animations that NPC actually "
+			+ "uses — so a figure holding a polearm walks like one. Changing this rebuilds the "
+			+ "entourage on the next game tick.",
+		position = 2,
+		section = rosterSection
+	)
+	default EntourageFigure figure()
+	{
+		return EntourageFigure.defaultAt(0);
+	}
+
+	@ConfigItem(
+		keyName = "figure2",
+		name = "Figure 2",
+		description = "Whose body the second follower wears. Used when \"Followers\" is at least two.",
+		position = 3,
+		section = rosterSection
+	)
+	default EntourageFigure figure2()
+	{
+		return EntourageFigure.defaultAt(1);
+	}
+
+	@ConfigItem(
+		keyName = "figure3",
+		name = "Figure 3",
+		description = "Whose body the third follower wears. Used when \"Followers\" is at least three.",
+		position = 4,
+		section = rosterSection
+	)
+	default EntourageFigure figure3()
+	{
+		return EntourageFigure.defaultAt(2);
+	}
+
+	@ConfigItem(
+		keyName = "figure4",
+		name = "Figure 4",
+		description = "Whose body the fourth follower wears. Used when \"Followers\" is at least four.",
+		position = 5,
+		section = rosterSection
+	)
+	default EntourageFigure figure4()
+	{
+		return EntourageFigure.defaultAt(3);
+	}
+
+	@ConfigItem(
+		keyName = "figure5",
+		name = "Figure 5",
+		description = "Whose body the fifth follower wears. Used when \"Followers\" is five.",
+		position = 6,
+		section = rosterSection
+	)
+	default EntourageFigure figure5()
+	{
+		return EntourageFigure.defaultAt(4);
 	}
 
 	// --- Movement ------------------------------------------------------------
@@ -109,9 +193,10 @@ public interface EntourageConfig extends Config
 	@ConfigItem(
 		keyName = "followDistance",
 		name = "Follow distance",
-		description = "How many tiles away the follower stands, in tiles. One is at your shoulder; "
-			+ "two gives it room and makes it more likely to get caught on a doorway, because it "
-			+ "walks greedily towards its spot rather than pathfinding around obstacles.",
+		description = "How far out the nearest rank of the formation stands, in tiles. One is at "
+			+ "your shoulder; two gives them room and makes them more likely to get caught on a "
+			+ "doorway, because a follower walks greedily towards its spot rather than pathfinding "
+			+ "around obstacles. Ranks behind the first sit one tile further out each.",
 		position = 1,
 		section = movementSection
 	)
@@ -122,26 +207,35 @@ public interface EntourageConfig extends Config
 	}
 
 	@ConfigItem(
+		// "formationSlot" and not "formation": it is the key this setting has always had.
+		// What it holds is now a whole shape rather than one slot, but renaming the key to
+		// match would silently reset the setting for anybody who has one — which AGENTS.md
+		// forbids without a migration, and which a tidier name is not worth. The enum
+		// constant names are fixed for the same reason.
 		keyName = "formationSlot",
-		name = "Stands",
-		description = "Where the follower keeps station: behind you, ahead of you, or on either "
-			+ "side. Measured against the way you last walked rather than the way you are facing, so "
-			+ "turning on the spot does not send it walking a circle around you — except on \"Ahead "
-			+ "of me\", where walking round to the front again is the whole point of the slot.",
+		name = "Formation",
+		description = "The shape the entourage stands in. The first four put everybody in a single "
+			+ "file or rank in one direction; \"Hangout ring\" spreads them around you facing "
+			+ "inward, \"Wedge behind\" trails them in a V, and \"Line abreast\" puts them in a row "
+			+ "with you in the middle of it. Every shape is measured against the way you last "
+			+ "walked rather than the way you are facing, so turning on the spot does not send them "
+			+ "walking a circle around you — except on \"Ahead of me\", where walking round to the "
+			+ "front again is the whole point.",
 		position = 2,
 		section = movementSection
 	)
-	default FormationSlot formationSlot()
+	default EntourageFormation formation()
 	{
-		return FormationSlot.BEHIND;
+		return EntourageFormation.DEFAULT;
 	}
 
 	@ConfigItem(
 		keyName = "facing",
 		name = "Faces",
-		description = "Which way the follower points once it has stopped. At you, the same way you "
-			+ "are facing, or a fixed compass direction. While it is walking it faces the way it is "
-			+ "walking, whatever this says.",
+		description = "Which way a follower points once it has stopped. At you, the same way you "
+			+ "are facing, or a fixed compass direction. \"At me\" is what makes the hangout ring "
+			+ "face inward. While a follower is walking it faces the way it is walking, whatever "
+			+ "this says.",
 		position = 3,
 		section = movementSection
 	)
@@ -168,10 +262,11 @@ public interface EntourageConfig extends Config
 	@ConfigItem(
 		keyName = "recallDistance",
 		name = "Recall at",
-		description = "How far behind you the follower may get, in tiles, before it is put back on "
+		description = "How far behind you a follower may get, in tiles, before it is put back on "
 			+ "your tile instead of walking. This is what stops it being stranded behind a wall it "
 			+ "would have to walk away from to get around. Higher means fewer of those pops and "
-			+ "longer absences when one is needed.",
+			+ "longer absences when one is needed. It cannot go below eight, because a column of "
+			+ "five at the widest follow distance legitimately reaches six tiles back.",
 		position = 5,
 		section = movementSection
 	)

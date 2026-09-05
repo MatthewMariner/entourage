@@ -1,5 +1,7 @@
 package com.matthewmariner.entourage;
 
+import java.util.HashSet;
+import java.util.Set;
 import net.runelite.api.coords.WorldPoint;
 import org.junit.Before;
 import org.junit.Test;
@@ -22,8 +24,24 @@ public class EntourageSceneTest
 {
 	private static final WorldPoint STANDING = new WorldPoint(3221, 3218, 0);
 
-	/** One follower. Written out rather than derived, so growing the roster is a red test. */
+	/**
+	 * What a fresh install spawns: one follower. Written out rather than derived, so a
+	 * shipped default that grew the roster is a red test rather than a silent change.
+	 */
 	private static final int ROSTER_SIZE = 1;
+
+	/**
+	 * The full roster the owner asked for: five. A literal for the same reason —
+	 * {@code MAX_FOLLOWERS} would follow the constant anywhere, including to a cap somebody
+	 * raised without meaning to.
+	 */
+	private static final int FULL_ROSTER = 5;
+
+	/** Five different figures, so a test that loses one can tell which. */
+	private static final EntourageFigure[] FIVE = {
+		EntourageFigure.ROGUE, EntourageFigure.HANS, EntourageFigure.VANNAKA,
+		EntourageFigure.PIRATE, EntourageFigure.TURAEL
+	};
 
 	private FakeClient client;
 	private FakeWorldView view;
@@ -67,7 +85,7 @@ public class EntourageSceneTest
 		}
 	}
 
-	// --- The roster is the configured figure ---------------------------------
+	// --- The roster is the configured figures --------------------------------
 
 	@Test
 	public void theRosterIsWhicheverFigureTheSettingNames()
@@ -81,6 +99,78 @@ public class EntourageSceneTest
 		assertEquals(EntourageFigure.VANNAKA, scene.getFollowers().get(0).getFigure());
 		assertTrue("it dressed from Vannaka's own NPC",
 			client.npcDefinitionsRequested().contains(EntourageFigure.VANNAKA.getNpcId()));
+	}
+
+	/**
+	 * <b>Five figures, five objects on the client's own list, in the order the settings
+	 * name them.</b> The order is not decoration: a follower's index is what
+	 * {@link EntourageFormation} turns into a station, so a roster built out of order is a
+	 * formation with the wrong people in the wrong places.
+	 */
+	@Test
+	public void afullRosterPutsFiveDifferentFiguresOnScreenInOrder()
+	{
+		config.setRoster(FIVE);
+		EntourageScene scene = scene();
+
+		scene.onGameTick();
+
+		assertEquals(FULL_ROSTER, client.registeredCount());
+		assertEquals(FULL_ROSTER, scene.getFollowers().size());
+
+		for (int index = 0; index < FULL_ROSTER; index++)
+		{
+			Follower follower = scene.getFollowers().get(index);
+			assertEquals("slot " + index + " wears the wrong body", FIVE[index], follower.getFigure());
+			assertEquals("slot " + index + " was numbered wrong", index, follower.getIndex());
+			assertTrue("slot " + index + " never dressed from its own NPC",
+				client.npcDefinitionsRequested().contains(FIVE[index].getNpcId()));
+		}
+	}
+
+	/**
+	 * <b>Five followers form up on five different tiles, and stay on them as the player
+	 * moves.</b> This is the whole feature stated end to end: pick a formation, pick five
+	 * figures, walk, and there are still five figures each on its own tile.
+	 *
+	 * <p>The tiles are compared against each other rather than against a table of expected
+	 * ones — that table is {@code EntourageFormationTest}'s job — so this cannot pass by
+	 * agreeing with the same arithmetic it is checking.
+	 */
+	@Test
+	public void aFullRosterInAFormationSettlesOnFiveDistinctTilesAndStaysThere()
+	{
+		config.setRoster(FIVE).setFormation(EntourageFormation.HANGOUT);
+		EntourageScene scene = scene();
+
+		// Walk east for a while, then stand still long enough for everybody to arrive.
+		WorldPoint player = STANDING;
+		for (int step = 0; step < 8; step++)
+		{
+			client.setLocalPlayer(FakePlayer.standingOn(view, player));
+			scene.onGameTick();
+			player = player.dx(1);
+		}
+
+		WorldPoint standing = player.dx(-1);
+		for (int settle = 0; settle < 10; settle++)
+		{
+			scene.onGameTick();
+		}
+
+		Set<WorldPoint> tiles = new HashSet<>();
+		for (Follower follower : scene.getFollowers())
+		{
+			WorldPoint tile = follower.getWalk().currentTile();
+
+			assertTrue("two followers settled on " + tile, tiles.add(tile));
+			assertNotEquals("a follower settled on the player's own tile", standing, tile);
+			assertFalse("and it is still walking, so it has not settled anywhere",
+				follower.getWalk().isMoving());
+		}
+
+		assertEquals(FULL_ROSTER, tiles.size());
+		assertEquals("everybody is still on screen", FULL_ROSTER, client.registeredCount());
 	}
 
 	/**
@@ -108,6 +198,56 @@ public class EntourageSceneTest
 		assertEquals(EntourageFigure.WISE_OLD_MAN, scene.getFollowers().get(0).getFigure());
 		assertTrue(client.npcDefinitionsRequested()
 			.contains(EntourageFigure.WISE_OLD_MAN.getNpcId()));
+	}
+
+	/**
+	 * <b>Turning the count up is the same rebuild, and it must not leak either.</b> The
+	 * roster is compared as a whole list, so this is the case a comparison that only
+	 * watched the first slot would miss entirely.
+	 */
+	@Test
+	public void changingTheRosterSizeRebuildsWithoutLeavingTheOldFollowersRegistered()
+	{
+		EntourageScene scene = scene();
+		scene.onGameTick();
+		assertEquals(ROSTER_SIZE, client.registeredCount());
+
+		config.setRoster(FIVE);
+		scene.onGameTick();
+
+		assertEquals(FULL_ROSTER, client.registeredCount());
+		assertEquals(FULL_ROSTER, scene.getFollowers().size());
+
+		config.setRoster(EntourageFigure.HANS, EntourageFigure.VANNAKA);
+		scene.onGameTick();
+
+		assertEquals("four objects were left registered by the shrink", 2, client.registeredCount());
+		assertEquals(2, scene.getFollowers().size());
+		assertEquals(EntourageFigure.HANS, scene.getFollowers().get(0).getFigure());
+		assertEquals(EntourageFigure.VANNAKA, scene.getFollowers().get(1).getFigure());
+	}
+
+	/**
+	 * <b>The same two figures in the other order is a different roster.</b> A follower's
+	 * index decides which station of the formation it stands on, so swapping two slots has
+	 * to move the bodies — and a comparison that only counted, or only looked at the set of
+	 * figures, would leave them where they were.
+	 */
+	@Test
+	public void swappingTwoFiguresRoundRebuildsTheRoster()
+	{
+		config.setRoster(EntourageFigure.HANS, EntourageFigure.VANNAKA);
+		EntourageScene scene = scene();
+		scene.onGameTick();
+		Follower first = scene.getFollowers().get(0);
+
+		config.setRoster(EntourageFigure.VANNAKA, EntourageFigure.HANS);
+		scene.onGameTick();
+
+		assertEquals("still two figures on screen", 2, client.registeredCount());
+		assertNotEquals("and they really were rebuilt", first, scene.getFollowers().get(0));
+		assertEquals(EntourageFigure.VANNAKA, scene.getFollowers().get(0).getFigure());
+		assertEquals(EntourageFigure.HANS, scene.getFollowers().get(1).getFigure());
 	}
 
 	/**
@@ -337,6 +477,29 @@ public class EntourageSceneTest
 		int deactivated = scene.shutdown();
 
 		assertEquals(ROSTER_SIZE, deactivated);
+		assertEquals(0, client.registeredCount());
+		assertTrue("and nothing is left holding a lit model", scene.getFollowers().isEmpty());
+	}
+
+	/**
+	 * <b>The same promise across a full roster, which is the one that matters now.</b> A
+	 * teardown that deactivated the first follower and stopped would pass the test above
+	 * unchanged — one figure in, one figure out — and leave four standing in the world with
+	 * nothing owning them. The count is a literal for the same reason
+	 * {@link #FULL_ROSTER} is.
+	 */
+	@Test
+	public void shutdownLeavesZeroRegisteredObjectsWithAFullRoster()
+	{
+		config.setRoster(FIVE);
+		EntourageScene scene = scene();
+		scene.onGameTick();
+		assertEquals("all five have to be there before the teardown means anything",
+			FULL_ROSTER, client.registeredCount());
+
+		int deactivated = scene.shutdown();
+
+		assertEquals("every one of them came off the client's own list", 5, deactivated);
 		assertEquals(0, client.registeredCount());
 		assertTrue("and nothing is left holding a lit model", scene.getFollowers().isEmpty());
 	}
@@ -574,7 +737,7 @@ public class EntourageSceneTest
 	@Test
 	public void aWalkingEntourageIsMovedByTheFramePass()
 	{
-		config.setFormationSlot(FormationSlot.LEFT).setCanRun(false);
+		config.setFormation(EntourageFormation.LEFT).setCanRun(false);
 		EntourageScene scene = scene();
 		scene.onGameTick();
 
@@ -600,7 +763,7 @@ public class EntourageSceneTest
 	@Test
 	public void theSettingsReachTheFollower()
 	{
-		config.setFormationSlot(FormationSlot.LEFT);
+		config.setFormation(EntourageFormation.LEFT);
 		EntourageScene scene = scene();
 		scene.onGameTick();
 

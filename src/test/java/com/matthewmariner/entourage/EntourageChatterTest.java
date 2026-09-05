@@ -36,14 +36,31 @@ public class EntourageChatterTest
 		client.setTopLevelWorldView(view);
 	}
 
-	/** A follower that is spawned and standing on screen. */
+	/** A follower that is spawned and standing on screen, first in the roster. */
 	private Follower spawned(EntourageFigure figure)
 	{
-		Follower follower = new Follower(client, figure, STANDING);
+		return spawned(figure, 0);
+	}
+
+	/** The same, in a named roster position — which is what staggers whose turn it is. */
+	private Follower spawned(EntourageFigure figure, int index)
+	{
+		Follower follower = new Follower(client, figure, index, STANDING);
 		FollowerAnchor anchor = FollowerAnchor.of(FakePlayer.standingOn(view, STANDING), view);
 		follower.onGameTick(anchor, view, FakeConfig.defaults());
 		assertTrue("the fixture has to actually spawn", follower.isActive());
 		return follower;
+	}
+
+	/** Five followers, numbered as the scene numbers them. */
+	private List<Follower> fullRoster(EntourageFigure... figures)
+	{
+		List<Follower> roster = new ArrayList<>(figures.length);
+		for (int index = 0; index < figures.length; index++)
+		{
+			roster.add(spawned(figures[index], index));
+		}
+		return roster;
 	}
 
 	private static EntourageSettings settings()
@@ -160,16 +177,23 @@ public class EntourageChatterTest
 	}
 
 	/**
-	 * <b>The cap, which is the reason this class exists.</b> There is one follower today
-	 * and the roster is the next thing to grow, so the guard is written against two — at
-	 * the tightest cadence the settings allow, where each of them wants to be talking for
-	 * nine ticks in every ten and an overlap is a certainty rather than a possibility.
-	 * Without a cap this is two lines stacked over two heads; with five followers it is
-	 * the wall of text {@code ../lively-cities} shipped a dial to prevent.
+	 * <b>The cap, which is the reason this class exists.</b> Written against the full
+	 * roster of five, at the tightest cadence the settings allow, where each of them wants
+	 * to be talking for nine ticks in every ten and an overlap is a certainty rather than a
+	 * possibility. Without a cap this is five lines stacked over five heads standing within
+	 * two tiles of each other — the wall of text {@code ../lively-cities} shipped a dial to
+	 * prevent.
 	 *
-	 * <p><b>The number below is a literal, and that is the whole point of this revision.</b>
-	 * It used to read {@code talking <= EntourageChatter.MAX_CONCURRENT_LINES} — an
-	 * assertion that takes its expected value from the constant it is checking, so it
+	 * <p><b>Five rather than the two this used to use.</b> Two followers is a fixture that
+	 * cannot tell a cap of one from a cap of two, and a cap of two at five followers is a
+	 * pair of lines drawn over adjacent heads — which is the failure the cap is for. The
+	 * roster is also numbered 0..4, as the scene numbers it, because that is what staggers
+	 * whose turn it is; a fixture that built five followers all at index zero would be
+	 * measuring a much easier problem.
+	 *
+	 * <p><b>The number below is a literal, and that is the whole point of an earlier
+	 * revision.</b> It used to read {@code talking <= EntourageChatter.MAX_CONCURRENT_LINES}
+	 * — an assertion that takes its expected value from the constant it is checking, so it
 	 * proves the implementation honours whatever the constant says and nothing about what
 	 * the constant says. Setting {@code MAX_CONCURRENT_LINES} to 99 left it green: two
 	 * followers talking over each other, the wall of text on screen, and a test named for
@@ -180,8 +204,8 @@ public class EntourageChatterTest
 	@Test
 	public void neverMoreThanOneFollowerIsTalkingAtOnce()
 	{
-		List<Follower> roster = new ArrayList<>(Arrays.asList(
-			spawned(EntourageFigure.ROGUE), spawned(EntourageFigure.HANS)));
+		List<Follower> roster = fullRoster(EntourageFigure.ROGUE, EntourageFigure.HANS,
+			EntourageFigure.VANNAKA, EntourageFigure.PIRATE, EntourageFigure.TURAEL);
 		EntourageChatter chatter = new EntourageChatter();
 
 		EntourageSettings tightest = new FakeConfig()
@@ -243,27 +267,68 @@ public class EntourageChatterTest
 		assertEquals(1, EntourageChatter.MAX_CONCURRENT_LINES);
 	}
 
-	/** Both followers get turns rather than the first in the list holding the slot forever. */
+	/**
+	 * Every follower gets turns rather than the first in the list holding the slot forever.
+	 *
+	 * <p>With a cap of one and five followers, the way this goes wrong is not subtle: if
+	 * their turns to speak fell on the same tick, follower zero would win the pass every
+	 * time and the other four would be figures with no dialogue for the whole session.
+	 * That is what {@code FollowerRemarks}' per-position stagger is for, and this is where
+	 * it is checked end to end.
+	 */
 	@Test
 	public void theCapDoesNotBelongToWhicheverFollowerIsFirstInTheRoster()
 	{
-		Follower first = spawned(EntourageFigure.ROGUE);
-		Follower second = spawned(EntourageFigure.HANS);
-		List<Follower> roster = new ArrayList<>(Arrays.asList(first, second));
+		List<Follower> roster = fullRoster(EntourageFigure.ROGUE, EntourageFigure.HANS,
+			EntourageFigure.VANNAKA, EntourageFigure.PIRATE, EntourageFigure.TURAEL);
 		EntourageChatter chatter = new EntourageChatter();
 		EntourageSettings settings = settings();
 
-		boolean firstSpoke = false;
-		boolean secondSpoke = false;
-		for (int tick = 0; tick < settings.getDialogueIntervalTicks() * 6; tick++)
+		boolean[] spoke = new boolean[roster.size()];
+		for (int tick = 0; tick < settings.getDialogueIntervalTicks() * 8; tick++)
 		{
 			chatter.onGameTick(roster, settings);
-			firstSpoke |= first.getRemarks().isTalking();
-			secondSpoke |= second.getRemarks().isTalking();
+			for (int index = 0; index < roster.size(); index++)
+			{
+				spoke[index] |= roster.get(index).getRemarks().isTalking();
+			}
 		}
 
-		assertTrue(firstSpoke);
-		assertTrue("the second follower never gets a word in", secondSpoke);
+		for (int index = 0; index < spoke.length; index++)
+		{
+			assertTrue("follower " + index + " never gets a word in", spoke[index]);
+		}
+	}
+
+	/**
+	 * <b>And the same, for the roster a user can build by accident: five copies of one
+	 * figure.</b> The line stream and the stagger are seeded from the figure's name, so
+	 * five Rogues are five identical seeds unless the roster position is mixed in — and
+	 * then the cap of one means follower zero speaks forever and the other four never do.
+	 * The test above cannot see it, because its five figures are five different names.
+	 */
+	@Test
+	public void fiveCopiesOfOneFigureStillTakeTurns()
+	{
+		List<Follower> roster = fullRoster(EntourageFigure.ROGUE, EntourageFigure.ROGUE,
+			EntourageFigure.ROGUE, EntourageFigure.ROGUE, EntourageFigure.ROGUE);
+		EntourageChatter chatter = new EntourageChatter();
+		EntourageSettings settings = settings();
+
+		boolean[] spoke = new boolean[roster.size()];
+		for (int tick = 0; tick < settings.getDialogueIntervalTicks() * 8; tick++)
+		{
+			chatter.onGameTick(roster, settings);
+			for (int index = 0; index < roster.size(); index++)
+			{
+				spoke[index] |= roster.get(index).getRemarks().isTalking();
+			}
+		}
+
+		for (int index = 0; index < spoke.length; index++)
+		{
+			assertTrue("copy " + index + " of the same figure never gets a word in", spoke[index]);
+		}
 	}
 
 	/**

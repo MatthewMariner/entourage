@@ -39,12 +39,20 @@ import net.runelite.api.coords.WorldPoint;
  * {@code FollowerTest} pins the tick count at zero.
  *
  * <p><b>Where the follower wants to be is one exact tile, not a radius.</b>
- * {@link FormationSlot} names it, off the player's tile, the configured follow
- * distance, and the direction the player last travelled — which this class keeps,
- * because nothing else sees the anchor on consecutive ticks. The follower walks to that
- * tile and stops on it. The older rule ("get within a tile and stop") was eight
- * acceptable tiles with no way to prefer one, so "stand on my left" could not be
- * expressed at all.
+ * {@link EntourageFormation} names it, off the player's tile, which follower of the
+ * roster this is, the configured follow distance, and the direction the player last
+ * travelled — which this class keeps, because nothing else sees the anchor on consecutive
+ * ticks. The follower walks to that tile and stops on it. The older rule ("get within a
+ * tile and stop") was eight acceptable tiles with no way to prefer one, so "stand on my
+ * left" could not be expressed at all.
+ *
+ * <p><b>This class knows nothing about the other followers, and does not need to.</b>
+ * Two followers never <i>settle</i> on one tile because their two stations are two
+ * different tiles — {@link EntourageFormation} guarantees that — rather than because
+ * anything here checks. Adding an occupancy check would in fact make things worse: when
+ * the player doubles back, two followers on opposite sides have to swap, and the only
+ * route is through each other. Refusing that step deadlocks them both a tile apart, where
+ * crossing resolves it in one tick.
  *
  * <p><b>Blocked means skip, never nudge.</b> A step is taken only when
  * {@link WalkableStep} returns {@link WalkableStep.Verdict#WALKABLE}; both
@@ -151,14 +159,29 @@ final class FollowerWalk
 	}
 
 	/**
+	 * One game tick of following, for a follower that is on its own.
+	 *
+	 * <p>The same thing as {@link #tick(WorldPoint, WorldView, EntourageSettings, int)}
+	 * with an index of zero, and every formation's first station at a roster of one is the
+	 * tile this plugin's single follower always stood on.
+	 */
+	void tick(@Nullable WorldPoint anchor, @Nullable WorldView worldView, EntourageSettings settings)
+	{
+		tick(anchor, worldView, settings, 0);
+	}
+
+	/**
 	 * One game tick of following.
 	 *
 	 * @param anchor    the tile to form up on, or {@code null} when there is no
 	 *                  anchor this tick — see {@link FollowerAnchor}
 	 * @param worldView the view the follower is walking in, for the collision read
-	 * @param settings  the distances, the slot and whether running is allowed
+	 * @param settings  the distances, the formation and whether running is allowed
+	 * @param index     which follower of the roster this is, 0-based — the formation
+	 *                  turns that into a station
 	 */
-	void tick(@Nullable WorldPoint anchor, @Nullable WorldView worldView, EntourageSettings settings)
+	void tick(@Nullable WorldPoint anchor, @Nullable WorldView worldView,
+		EntourageSettings settings, int index)
 	{
 		// Whatever happens below, the step that was in flight is over: the drawn
 		// position has caught up with the tile, and the next interpolation starts
@@ -187,7 +210,7 @@ final class FollowerWalk
 			return;
 		}
 
-		WorldPoint station = stationTile(anchor, settings);
+		WorldPoint station = stationTile(anchor, settings, index);
 		int toStation = chebyshevTo(station.getX(), station.getY());
 
 		if (toStation == 0)
@@ -278,13 +301,24 @@ final class FollowerWalk
 
 	/**
 	 * @param anchor   the tile the player is on
-	 * @param settings the slot and the follow distance
-	 * @return the tile this follower is trying to stand on
+	 * @param settings the formation and the follow distance
+	 * @return the tile a follower on its own is trying to stand on
 	 */
 	WorldPoint stationTile(WorldPoint anchor, EntourageSettings settings)
 	{
-		return settings.getFormationSlot()
-			.tileFor(anchor, headingX, headingY, settings.getFollowDistance());
+		return stationTile(anchor, settings, 0);
+	}
+
+	/**
+	 * @param anchor   the tile the player is on
+	 * @param settings the formation, the roster size and the follow distance
+	 * @param index    which follower of the roster this is, 0-based
+	 * @return the tile this follower is trying to stand on
+	 */
+	WorldPoint stationTile(WorldPoint anchor, EntourageSettings settings, int index)
+	{
+		return settings.getFormation().tileFor(anchor, headingX, headingY,
+			index, settings.getRosterSize(), settings.getFollowDistance());
 	}
 
 	/** @return the tile the follower is on, or walking onto */
