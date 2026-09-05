@@ -55,6 +55,13 @@ class EntourageScene
 	private final List<Follower> followers = new ArrayList<>();
 
 	/**
+	 * Who is talking, and the cap on how many may be. Owned here rather than by
+	 * {@link Follower} because "how many lines are on screen" is a property of the
+	 * entourage rather than of any one figure — see {@link EntourageChatter}.
+	 */
+	private final EntourageChatter chatter = new EntourageChatter();
+
+	/**
 	 * The figure {@link #followers} was built for, or {@code null} when there is no
 	 * roster.
 	 *
@@ -105,12 +112,23 @@ class EntourageScene
 		// is a snapshot rather than the config itself.
 		EntourageSettings settings = EntourageSettings.from(config);
 
-		WorldPoint tile = anchor.getTile();
+		if (settings.hideInInstances() && worldView.isInstance())
+		{
+			// A raid, a quest cutscene, the Inferno. Deactivating rather than merely not
+			// drawing, for the same reason the no-anchor branch does: an object left
+			// registered is a figure standing in an instance that this pass has stopped
+			// looking after. Asked of the view rather than of Client.isInInstancedRegion(),
+			// which answers for whichever view the client currently has selected — this
+			// one is the view the anchor was judged against.
+			despawnAll();
+			return;
+		}
+
 		for (Follower follower : roster(settings))
 		{
 			try
 			{
-				follower.onGameTick(tile, worldView, settings);
+				follower.onGameTick(anchor, worldView, settings);
 			}
 			catch (RuntimeException e)
 			{
@@ -125,6 +143,11 @@ class EntourageScene
 				follower.despawn();
 			}
 		}
+
+		// After the followers, not before: a follower that spawned this tick is on screen
+		// by now, and one that was latched broken above is off it, so the chatter's
+		// isActive() check sees this tick's answer rather than last tick's.
+		chatter.onGameTick(followers, settings);
 	}
 
 	/**
@@ -172,6 +195,10 @@ class EntourageScene
 			follower.onSceneEntered();
 		}
 
+		// A fresh world starts a fresh cadence rather than inheriting a phase from the
+		// last one — and nothing is left holding a line said before the scene changed.
+		chatter.reset(followers);
+
 		lastResolution = null;
 
 		if (deactivated > 0)
@@ -199,6 +226,7 @@ class EntourageScene
 	int shutdown()
 	{
 		int deactivated = retire();
+		chatter.reset(followers);
 		lastResolution = null;
 
 		log.debug("shutdown deactivated {} follower(s)", deactivated);
@@ -257,6 +285,18 @@ class EntourageScene
 	List<Follower> getFollowers()
 	{
 		return followers;
+	}
+
+	/**
+	 * @return the dialogue cadence, for the tests. Never null.
+	 *
+	 * <p>Its clock is the only part of a scene invalidation that has no other visible
+	 * effect: the lines themselves are cleared by the despawn that comes with it, so
+	 * "the phase restarts on a scene load" cannot be seen from outside without asking.
+	 */
+	EntourageChatter getChatter()
+	{
+		return chatter;
 	}
 
 	/**

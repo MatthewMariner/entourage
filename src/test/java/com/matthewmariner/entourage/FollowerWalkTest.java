@@ -971,16 +971,19 @@ public class FollowerWalkTest
 	}
 
 	/**
-	 * <b>The player has to end up on a different side of the follower for this to mean
-	 * anything.</b> An earlier version of this test walked the follower east and then
-	 * asserted it was facing east, which is what it was already facing from the last step
-	 * it took — deleting the turn-to-face entirely left the test green. Here the follower
-	 * walks <i>east</i> onto a slot that is <i>south</i> of the player, so "the way it was
-	 * walking" and "the way the player is" are different answers and only one of them
-	 * passes.
+	 * <b>This class keeps the direction of travel and nothing else.</b> It used to turn
+	 * the follower to look at the player on the tick it arrived, and that moved to
+	 * {@link Follower} when which-way-it-points became a setting — the player's own facing
+	 * is not something a tile can tell you. What has to stay true here is that arriving
+	 * does not <i>change</i> the answer: a walk that quietly went on turning the figure
+	 * would fight the facing setting for one tick, every time the follower stopped.
+	 *
+	 * <p>The geometry is the one that used to catch a vacuous version of this test: the
+	 * follower walks <b>east</b> onto a slot that is <b>south</b> of the player, so
+	 * "the way it was walking" and "at the player" are different answers.
 	 */
 	@Test
-	public void itTurnsToFaceThePlayerWhenItStops()
+	public void arrivingOnItsSlotLeavesTheDirectionOfTravelAlone()
 	{
 		FakeWorldView view = scene();
 		EntourageSettings settings = defaults();
@@ -1003,40 +1006,25 @@ public class FollowerWalkTest
 		walk.tick(anchor, view, settings);
 
 		assertFalse("on its slot, so it must not have moved", walk.isMoving());
-		assertEquals("on station it looks at the player, not at wherever it was walking",
+		assertEquals("and the walk still reports the way it was going, not the way the "
+				+ "player is — turning is FollowerFacing's job now",
+			StepOrientation.forStep(1, 0), walk.getOrientation());
+		assertNotEquals("which is a different answer from looking at the player",
 			StepOrientation.forStep(0, 1), walk.getOrientation());
 	}
 
+	/** The same claim for a follower that could not move at all rather than one that arrived. */
 	@Test
-	public void aBlockedFollowerStillLooksAtThePlayer()
-	{
-		FakeWorldView view = scene().block(START.dy(1)).block(START.dx(1).dy(1)).block(START.dx(1));
-		FollowerWalk walk = new FollowerWalk(START);
-
-		walk.tick(START.dx(5).dy(5), view, defaults());
-
-		assertFalse(walk.isMoving());
-		assertEquals(StepOrientation.forStep(1, 1), walk.getOrientation());
-	}
-
-	/**
-	 * The one case where there is no direction to face: the follower is standing on the
-	 * player's own tile — which it may cross when the formation flips to the far side —
-	 * and cannot step off it. Snapping the orientation to the table's {@code NOT_MOVING}
-	 * sentinel would hand {@code setOrientation} a {@code -1}.
-	 */
-	@Test
-	public void aPlayerStandingOnTheFollowerDoesNotSnapItsFacing()
+	public void aBlockedFollowerKeepsTheDirectionItLastTravelledIn()
 	{
 		EntourageSettings settings = collinear();
 		FollowerWalk walk = new FollowerWalk(START);
 
 		walk.tick(START.dx(5), scene(), settings);
-		int facing = walk.getOrientation();
-		assertEquals("this test needs a facing that is not the initial zero",
-			StepOrientation.forStep(1, 0), facing);
+		assertEquals("this test needs a direction of travel first",
+			StepOrientation.forStep(1, 0), walk.getOrientation());
 
-		WorldPoint onTop = walk.currentTile();
+		WorldPoint stuck = walk.currentTile();
 		FakeWorldView boxedIn = scene();
 		for (int dx = -1; dx <= 1; dx++)
 		{
@@ -1044,16 +1032,16 @@ public class FollowerWalkTest
 			{
 				if (dx != 0 || dy != 0)
 				{
-					boxedIn.block(onTop.dx(dx).dy(dy));
+					boxedIn.block(stuck.dx(dx).dy(dy));
 				}
 			}
 		}
 
-		walk.tick(onTop, boxedIn, settings);
+		walk.tick(START.dx(5).dy(5), boxedIn, settings);
 
-		assertFalse(walk.isMoving());
-		assertEquals("there is no direction to face, so keep the one it had",
-			facing, walk.getOrientation());
+		assertFalse("nothing legal to step onto", walk.isMoving());
+		assertEquals("so the last direction of travel stands",
+			StepOrientation.forStep(1, 0), walk.getOrientation());
 	}
 
 	// --- The long run --------------------------------------------------------

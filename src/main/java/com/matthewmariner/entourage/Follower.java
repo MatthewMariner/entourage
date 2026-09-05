@@ -32,8 +32,9 @@ import net.runelite.api.coords.WorldPoint;
  * implementation detail:</b>
  * <ul>
  *   <li>{@link #onGameTick} runs once per game tick. It steps the walk one tile or two,
- *       faces the follower the way it is going, and switches between the idle, walk
- *       and run animations.</li>
+ *       points the follower — the way it is going while it is going somewhere, and
+ *       {@link FollowerFacing}'s answer while it is not — and switches between the idle,
+ *       walk and run animations.</li>
  *   <li>{@link #advanceFrame} runs once per rendered frame. It slides the drawn
  *       position between the tile the follower left and the tile it is heading for.
  *       <b>Nothing else per frame</b> — in particular not
@@ -134,6 +135,13 @@ final class Follower
 	private final EntourageFigure figure;
 	private final FollowerWalk walk;
 
+	/**
+	 * What this follower is saying. Always present — every figure ships lines, and a
+	 * follower with nothing to say is one whose dialogue is switched off rather than one
+	 * that lacks the machinery.
+	 */
+	private final FollowerRemarks remarks;
+
 	private RuneLiteObject object;
 	private Model model;
 	private boolean broken;
@@ -189,6 +197,7 @@ final class Follower
 		this.client = client;
 		this.figure = figure;
 		this.walk = new FollowerWalk(start);
+		this.remarks = new FollowerRemarks(figure);
 	}
 
 	EntourageFigure getFigure()
@@ -199,6 +208,12 @@ final class Follower
 	FollowerWalk getWalk()
 	{
 		return walk;
+	}
+
+	/** @return what this follower is saying, and whether it is saying anything */
+	FollowerRemarks getRemarks()
+	{
+		return remarks;
 	}
 
 	boolean isBroken()
@@ -276,6 +291,13 @@ final class Follower
 
 			object.setActive(false);
 			positionSettled = false;
+
+			// A follower that is not on screen is not saying anything. Cleared here rather
+			// than left for the next game tick, because the overlay draws between ticks:
+			// this is what makes an orphaned line — text over ground with no figure under
+			// it — impossible rather than merely brief.
+			remarks.clear();
+
 			log.debug("despawned {}", figure.label());
 			return true;
 		}
@@ -304,11 +326,17 @@ final class Follower
 	 * hands back something real. There is no separate retry path, because a second one
 	 * is a second definition of when a follower is allowed to touch the cache.
 	 *
-	 * @param anchor    the tile to form up on
+	 * @param anchor    where the player is and which way they are facing, resolved — see
+	 *                  {@link FollowerAnchor}. Taken whole rather than as a tile because
+	 *                  {@link FollowerFacing#AS_I_AM} needs the other half of it, and a
+	 *                  second route from the player to here would be a second answer to
+	 *                  "where is the player" — which is the mistake that class exists to
+	 *                  make once.
 	 * @param worldView the view the follower is walking in
-	 * @param settings  this tick's configuration — the slot, the distances, the pose
+	 * @param settings  this tick's configuration — the slot, the distances, the facing,
+	 *                  the pose
 	 */
-	void onGameTick(WorldPoint anchor, WorldView worldView, EntourageSettings settings)
+	void onGameTick(FollowerAnchor anchor, WorldView worldView, EntourageSettings settings)
 	{
 		if (broken)
 		{
@@ -322,24 +350,63 @@ final class Follower
 
 		if (!isActive())
 		{
-			walk.placeAt(anchor);
-			spawn(worldView, settings);
+			walk.placeAt(anchor.getTile());
+			if (spawn(worldView, settings))
+			{
+				// A figure that appears already pointing the right way, rather than one
+				// that appears facing south and turns 600ms later.
+				object.setOrientation(orientationFor(anchor, settings));
+			}
 			return;
 		}
 
-		walk.tick(anchor, worldView, settings);
+		walk.tick(anchor.getTile(), worldView, settings);
 
 		// select() compares controllers by identity, so a follower mid-walk re-selects
 		// the one it already has and the object is left alone — which is what keeps the
 		// animation's frame counter intact.
 		select(controllerFor(settings));
 
-		object.setOrientation(walk.getOrientation());
+		object.setOrientation(orientationFor(anchor, settings));
 
 		// This tick may have moved the follower — including onto the tile it was
 		// heading for, which is where it stops — so the frame pass has to take at least
 		// one look before it may skip it again.
 		positionSettled = false;
+	}
+
+	/**
+	 * Which way to point the figure this tick.
+	 *
+	 * <p><b>A follower that moved faces the way it moved, whatever the setting says.</b>
+	 * That is not a special case grudgingly carved out of the facing options — it is the
+	 * rule, and the setting is what happens in its absence. A figure walking east while
+	 * pointing north is moonwalking, and no dropdown should be able to ask for it.
+	 *
+	 * <p>{@link FollowerFacing#AT_ME} has one answerless case: the player standing on the
+	 * follower's own tile, which happens for a tick after a recall and while the slot
+	 * flips to the far side of a player who doubled back. There is no direction from a
+	 * tile to itself, so the follower keeps the facing it had rather than being handed
+	 * {@link StepOrientation#NOT_MOVING}, which is {@code -1} and not an orientation at
+	 * all.
+	 *
+	 * <p><b>"The facing it had" is read back off the object rather than off the walk</b>,
+	 * and the two are different answers now that the walk keeps the direction of travel:
+	 * a follower that arrived from the south and turned east to look at you has a walk
+	 * saying north and an object saying east. Falling back to the walk would spin it back
+	 * to north for the one tick the player spends standing on it, which is a visible flick
+	 * every time the follower is recalled.
+	 */
+	private int orientationFor(FollowerAnchor anchor, EntourageSettings settings)
+	{
+		if (walk.isMoving())
+		{
+			return walk.getOrientation();
+		}
+
+		int facing = settings.getFacing()
+			.orientationFor(anchor.getTile(), anchor.getOrientation(), walk.currentTile());
+		return facing == StepOrientation.NOT_MOVING ? object.getOrientation() : facing;
 	}
 
 	/**

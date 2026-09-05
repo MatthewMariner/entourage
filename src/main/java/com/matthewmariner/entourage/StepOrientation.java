@@ -79,4 +79,25 @@ final class StepOrientation
 		// in hand should not have to remember to narrow it before asking.
 		return BY_STEP[Integer.signum(dx) + 1][Integer.signum(dy) + 1];
 	}
+
+	/**
+	 * Brings an angle from anywhere into 0..2047.
+	 *
+	 * <p>For the one orientation this plugin does not compute itself: the player's own,
+	 * copied when {@link FollowerFacing#AS_I_AM} is picked. The injected client masks that
+	 * field with {@code & 2047} before it stores it, so in practice it arrives in range —
+	 * but {@code Actor} is an interface this plugin does not implement, and the cost of
+	 * being wrong is a figure handed an orientation the renderer was never given.
+	 *
+	 * <p>{@code Math.floorMod} rather than {@code %}, because {@code -512 % 2048} is
+	 * {@code -512} and a negative orientation is exactly the value this exists to rule
+	 * out.
+	 *
+	 * @param angle any angle, in the same units
+	 * @return the same facing expressed in 0..2047
+	 */
+	static int normalise(int angle)
+	{
+		return Math.floorMod(angle, TURN_UNITS);
+	}
 }

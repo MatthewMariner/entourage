@@ -13,6 +13,7 @@ import net.runelite.client.callback.ClientThread;
 import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -36,6 +37,7 @@ public class EntouragePluginLifecycleTest
 	private FakeWorldView view;
 	private InlineClientThread clientThread;
 	private FakeConfig config;
+	private RecordingOverlayRegistry overlays;
 
 	@Before
 	public void setUp()
@@ -46,6 +48,7 @@ public class EntouragePluginLifecycleTest
 		client.setLocalPlayer(FakePlayer.standingOn(view, STANDING));
 		clientThread = new InlineClientThread();
 		config = new FakeConfig();
+		overlays = new RecordingOverlayRegistry();
 	}
 
 	private RecordingScene recordingScene()
@@ -71,6 +74,12 @@ public class EntouragePluginLifecycleTest
 		plugin.client = client;
 		plugin.clientThread = clientThread;
 		plugin.scene = scene;
+		plugin.overlayRegistry = overlays;
+
+		// A null plugin reference, which is what Overlay(Plugin) is given here and in
+		// ../lively-cities' own overlay tests: the base class keeps it for the settings
+		// panel's benefit and nothing in this test path reads it.
+		plugin.overlay = new EntourageOverlay(null, client, scene, config);
 		return plugin;
 	}
 
@@ -80,6 +89,12 @@ public class EntouragePluginLifecycleTest
 	 * The non-negotiable, against the client's own registered-object list and with real
 	 * followers really spawned first. A teardown test that shuts down an empty plugin
 	 * passes whether or not the teardown does anything at all.
+	 *
+	 * <p><b>The overlay is held to the same standard as the objects</b>, and for the same
+	 * reason: one left in the {@code OverlayManager} goes on being drawn after the plugin
+	 * that owns it has stopped, over a roster that has been emptied underneath it. It is
+	 * counted off {@link RecordingOverlayRegistry} rather than off {@code shutDown()}
+	 * being read.
 	 */
 	@Test
 	public void shutDownLeavesZeroRegisteredObjects()
@@ -91,11 +106,39 @@ public class EntouragePluginLifecycleTest
 		plugin.onGameTick(new GameTick());
 		assertTrue("the figures have to be there before the teardown means anything",
 			client.registeredCount() > 0);
+		assertEquals("and so does the overlay", 1, overlays.registered.size());
 
 		plugin.shutDown();
 
 		assertEquals("a leaked RuneLiteObject is a figure nothing owns", 0, client.registeredCount());
 		assertTrue(scene.getFollowers().isEmpty());
+		assertTrue("an overlay left registered goes on drawing after shutdown",
+			overlays.registered.isEmpty());
+	}
+
+	/**
+	 * The overlay that comes back out is the one that went in.
+	 *
+	 * <p>{@code OverlayManager.remove} is an identity removal, so a {@code shutDown} that
+	 * built a second instance to hand back — or handed back a different overlay entirely
+	 * — would leave the first one drawing forever while looking, from the outside, exactly
+	 * like a teardown that worked. The list emptying is not enough on its own to catch
+	 * that; the identity is.
+	 */
+	@Test
+	public void theOverlayRemovedIsTheOverlayThatWasAdded()
+	{
+		EntourageScene scene = scene();
+		EntouragePlugin plugin = plugin(scene);
+
+		plugin.startUp();
+		assertSame(plugin.overlay, overlays.registered.get(0));
+
+		plugin.shutDown();
+
+		assertEquals("one add and one remove, not a rebuild", 1, overlays.adds);
+		assertEquals(1, overlays.removes);
+		assertSame("and it is the same object that came back out", plugin.overlay, overlays.lastRemoved);
 	}
 
 	@Test
@@ -105,6 +148,7 @@ public class EntouragePluginLifecycleTest
 		plugin(scene).shutDown();
 
 		assertEquals(0, client.registeredCount());
+		assertTrue(overlays.registered.isEmpty());
 	}
 
 	@Test
@@ -119,6 +163,7 @@ public class EntouragePluginLifecycleTest
 		plugin.shutDown();
 
 		assertEquals(0, client.registeredCount());
+		assertTrue(overlays.registered.isEmpty());
 	}
 
 	// --- Startup -------------------------------------------------------------
@@ -279,6 +324,38 @@ public class EntouragePluginLifecycleTest
 
 		assertTrue(scene.invalidations.isEmpty());
 		assertEquals(0, scene.gameTicks);
+	}
+
+	/**
+	 * The {@code OverlayManager}, minus the manager — see {@link OverlayRegistry} for why
+	 * the real one cannot be stood in for.
+	 *
+	 * <p>It keeps the list rather than only counting, because "added once and removed
+	 * once" and "left registered" are the same pair of counts when the removal takes the
+	 * wrong overlay.
+	 */
+	private static final class RecordingOverlayRegistry implements OverlayRegistry
+	{
+		private final List<net.runelite.client.ui.overlay.Overlay> registered = new ArrayList<>();
+
+		private net.runelite.client.ui.overlay.Overlay lastRemoved;
+		private int adds;
+		private int removes;
+
+		@Override
+		public void add(net.runelite.client.ui.overlay.Overlay overlay)
+		{
+			adds++;
+			registered.add(overlay);
+		}
+
+		@Override
+		public void remove(net.runelite.client.ui.overlay.Overlay overlay)
+		{
+			removes++;
+			lastRemoved = overlay;
+			registered.remove(overlay);
+		}
 	}
 
 	/** The real {@link ClientThread}, minus the thread. */

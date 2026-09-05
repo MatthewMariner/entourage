@@ -24,10 +24,27 @@ import net.runelite.api.coords.WorldPoint;
  */
 final class FakePlayer extends StubPlayer
 {
+	/**
+	 * What {@link #getCurrentOrientation()} always answers: a value no test ever asks a
+	 * player to face.
+	 *
+	 * <p>The two orientation accessors are different fields of the client's actor —
+	 * {@code getOrientation()} is the facing the player has settled on and
+	 * {@code getCurrentOrientation()} is how far round the body has turned towards it —
+	 * and a fake that answered the same number for both would make reading the wrong one
+	 * indistinguishable from reading the right one. This number is deliberately not one
+	 * of {@link StepOrientation}'s eight, so it cannot coincide with an expected facing
+	 * either.
+	 */
+	static final int INTERPOLATED_ORIENTATION = 1234;
+
 	private final LocalPoint localLocation;
 	private final WorldPoint worldLocation;
 
 	private int worldLocationReads;
+
+	/** The target facing, {@code getOrientation()}. South until a test says otherwise. */
+	private int orientation;
 
 	private FakePlayer(LocalPoint localLocation, WorldPoint worldLocation)
 	{
@@ -125,5 +142,32 @@ final class FakePlayer extends StubPlayer
 	int worldLocationReads()
 	{
 		return worldLocationReads;
+	}
+
+	/** Points this player somewhere. The target facing, which is the one that matters. */
+	FakePlayer facing(int orientation)
+	{
+		this.orientation = orientation;
+		return this;
+	}
+
+	/** The facing the player has settled on — the field {@link FollowerAnchor} reads. */
+	@Override
+	public int getOrientation()
+	{
+		return orientation;
+	}
+
+	/**
+	 * How far round the body has turned towards it. Answered rather than thrown, and
+	 * always with {@link #INTERPOLATED_ORIENTATION}, so that a plugin reading this
+	 * accessor instead of the other one fails an assertion with the wrong number in it
+	 * rather than blowing up with a stack trace that says nothing about which was
+	 * intended.
+	 */
+	@Override
+	public int getCurrentOrientation()
+	{
+		return INTERPOLATED_ORIENTATION;
 	}
 }

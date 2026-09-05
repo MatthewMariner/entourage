@@ -40,6 +40,40 @@ public class FormationSlotTest
 	}
 
 	@Test
+	public void aheadIsTheWayThePlayerIsGoing()
+	{
+		assertEquals("walking north, ahead is north",
+			ANCHOR.dy(1), FormationSlot.AHEAD.tileFor(ANCHOR, 0, 1, 1));
+		assertEquals("walking east, ahead is east",
+			ANCHOR.dx(1), FormationSlot.AHEAD.tileFor(ANCHOR, 1, 0, 1));
+		assertEquals("walking north-east, ahead is north-east",
+			ANCHOR.dx(2).dy(2), FormationSlot.AHEAD.tileFor(ANCHOR, 1, 1, 2));
+	}
+
+	/**
+	 * Ahead and behind are each other's opposite about the player, which is what makes
+	 * them a pair — and the property a copy-pasted sign breaks. Written the same way as
+	 * the left/right reflection below rather than as "ahead is minus behind", so a slot
+	 * that returned the anchor itself for both could not satisfy it.
+	 */
+	@Test
+	public void aheadAndBehindAreReflectionsOfEachOtherThroughThePlayer()
+	{
+		for (int[] heading : HEADINGS)
+		{
+			WorldPoint ahead = FormationSlot.AHEAD.tileFor(ANCHOR, heading[0], heading[1], 2);
+			WorldPoint behind = FormationSlot.BEHIND.tileFor(ANCHOR, heading[0], heading[1], 2);
+
+			assertEquals(describe(FormationSlot.AHEAD, heading, 2),
+				ANCHOR.getX() * 2 - ahead.getX(), behind.getX());
+			assertEquals(describe(FormationSlot.AHEAD, heading, 2),
+				ANCHOR.getY() * 2 - ahead.getY(), behind.getY());
+			assertNotEquals("a slot that is the player's own tile is not a slot",
+				ANCHOR, ahead);
+		}
+	}
+
+	@Test
 	public void leftIsAQuarterTurnAnticlockwiseFromTheWayThePlayerIsGoing()
 	{
 		assertEquals("walking north, the player's left is west",
@@ -105,13 +139,13 @@ public class FormationSlotTest
 	}
 
 	/**
-	 * <b>Three settings that produced the same tile would be one setting with three
+	 * <b>Two settings that produced the same tile would be one setting with two
 	 * labels.</b> Checked for every heading, because the collapse a rotation bug
 	 * produces is usually heading-specific — a swapped sign puts LEFT on top of RIGHT
 	 * for the four diagonals and leaves the four straight ones looking right.
 	 */
 	@Test
-	public void theThreeSlotsAreThreeDifferentTilesForEveryHeading()
+	public void everySlotIsItsOwnTileForEveryHeading()
 	{
 		for (int[] heading : HEADINGS)
 		{
@@ -121,6 +155,9 @@ public class FormationSlotTest
 				assertTrue(describe(slot, heading, 1) + " duplicates another slot",
 					tiles.add(slot.tileFor(ANCHOR, heading[0], heading[1], 1)));
 			}
+
+			assertEquals("every slot the dropdown offers has to be somewhere of its own",
+				FormationSlot.values().length, tiles.size());
 		}
 	}
 

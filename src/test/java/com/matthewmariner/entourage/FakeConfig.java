@@ -23,9 +23,18 @@ final class FakeConfig implements EntourageConfig
 	private EntourageFigure figure = EntourageConfig.super.figure();
 	private int followDistance = EntourageConfig.super.followDistance();
 	private FormationSlot formationSlot = EntourageConfig.super.formationSlot();
+	private FollowerFacing facing = EntourageConfig.super.facing();
 	private boolean canRun = EntourageConfig.super.canRun();
 	private int recallDistance = EntourageConfig.super.recallDistance();
 	private EntouragePose idlePose = EntourageConfig.super.idlePose();
+	private boolean hideInInstances = EntourageConfig.super.hideInInstances();
+	private boolean dialogue = EntourageConfig.super.dialogue();
+	private String dialogueLines = EntourageConfig.super.dialogueLines();
+	private boolean nameLabel = EntourageConfig.super.nameLabel();
+	private DialogueColour dialogueColour = EntourageConfig.super.dialogueColour();
+	private DialogueFont dialogueFont = EntourageConfig.super.dialogueFont();
+	private int dialogueIntervalTicks = EntourageConfig.super.dialogueIntervalTicks();
+	private int dialogueDwellTicks = EntourageConfig.super.dialogueDwellTicks();
 
 	/** @return this config as the snapshot the plugin actually reads, clamping and all */
 	EntourageSettings settings()
@@ -75,6 +84,60 @@ final class FakeConfig implements EntourageConfig
 		return this;
 	}
 
+	FakeConfig setFacing(FollowerFacing facing)
+	{
+		this.facing = facing;
+		return this;
+	}
+
+	FakeConfig setHideInInstances(boolean hideInInstances)
+	{
+		this.hideInInstances = hideInInstances;
+		return this;
+	}
+
+	FakeConfig setDialogue(boolean dialogue)
+	{
+		this.dialogue = dialogue;
+		return this;
+	}
+
+	FakeConfig setDialogueLines(String dialogueLines)
+	{
+		this.dialogueLines = dialogueLines;
+		return this;
+	}
+
+	FakeConfig setNameLabel(boolean nameLabel)
+	{
+		this.nameLabel = nameLabel;
+		return this;
+	}
+
+	FakeConfig setDialogueColour(DialogueColour dialogueColour)
+	{
+		this.dialogueColour = dialogueColour;
+		return this;
+	}
+
+	FakeConfig setDialogueFont(DialogueFont dialogueFont)
+	{
+		this.dialogueFont = dialogueFont;
+		return this;
+	}
+
+	FakeConfig setDialogueIntervalTicks(int dialogueIntervalTicks)
+	{
+		this.dialogueIntervalTicks = dialogueIntervalTicks;
+		return this;
+	}
+
+	FakeConfig setDialogueDwellTicks(int dialogueDwellTicks)
+	{
+		this.dialogueDwellTicks = dialogueDwellTicks;
+		return this;
+	}
+
 	@Override
 	public EntourageFigure figure()
 	{
@@ -109,5 +172,59 @@ final class FakeConfig implements EntourageConfig
 	public EntouragePose idlePose()
 	{
 		return idlePose;
+	}
+
+	@Override
+	public FollowerFacing facing()
+	{
+		return facing;
+	}
+
+	@Override
+	public boolean hideInInstances()
+	{
+		return hideInInstances;
+	}
+
+	@Override
+	public boolean dialogue()
+	{
+		return dialogue;
+	}
+
+	@Override
+	public String dialogueLines()
+	{
+		return dialogueLines;
+	}
+
+	@Override
+	public boolean nameLabel()
+	{
+		return nameLabel;
+	}
+
+	@Override
+	public DialogueColour dialogueColour()
+	{
+		return dialogueColour;
+	}
+
+	@Override
+	public DialogueFont dialogueFont()
+	{
+		return dialogueFont;
+	}
+
+	@Override
+	public int dialogueIntervalTicks()
+	{
+		return dialogueIntervalTicks;
+	}
+
+	@Override
+	public int dialogueDwellTicks()
+	{
+		return dialogueDwellTicks;
 	}
 }

@@ -45,6 +45,27 @@ import net.runelite.api.coords.WorldPoint;
  * on a boat. Refusing is the deliberate branch; supporting it is a later slice with
  * its own collision path.
  *
+ * <p><b>It carries the player's facing too, and which of the two facings is a decision
+ * of the same kind.</b> {@code Actor} exposes {@code getOrientation()} and
+ * {@code getCurrentOrientation()}, and disassembling 1.12.38's injected client they are
+ * two different fields of the actor class {@code dh}: {@code getOrientation()} reads
+ * {@code dt} and {@code getCurrentOrientation()} reads {@code be}. The client's own
+ * update loop is what tells them apart — it computes {@code (dt - be) & 2047}, uses that
+ * difference to pick the turn-on-the-spot pose (rotate left, rotate right, about-face),
+ * and then either advances {@code be} towards {@code dt} by the actor's turn speed or,
+ * when the remaining turn is smaller than one step of it, assigns {@code be = dt}. So
+ * {@code dt} is the facing the player has <i>decided on</i> and {@code be} is how far
+ * round the body has got.
+ *
+ * <p>This plugin takes {@code getOrientation()}, and the reason is the clock rather than
+ * a preference. A follower's orientation is written once per <b>game tick</b>; {@code be}
+ * moves every <b>client tick</b>, thirty times as often. Sampling the interpolated field
+ * once every 600ms would catch the player's turn at an arbitrary point in it, so
+ * "the way I am facing" would land on angles the player never held and would then hold
+ * them for the rest of the tick — a follower stuttering round behind you. The target is
+ * the settled answer the moment the player commits to it, so a follower copying it turns
+ * once, at the tick boundary, and ends up pointing exactly where the player does.
+ *
  * <p>Nothing here calls the client. It takes the player and the view it is judged
  * against as arguments, so the whole of it is testable with no game running.
  */
@@ -73,21 +94,35 @@ final class FollowerAnchor
 		OUTSIDE_SCENE
 	}
 
-	private static final FollowerAnchor NO_PLAYER = new FollowerAnchor(Resolution.NO_PLAYER, null);
+	/**
+	 * The facing an unresolved anchor reports: south, the client's zero.
+	 *
+	 * <p>Never read in anger — nothing consults an anchor that did not resolve — and a
+	 * number rather than a sentinel because {@link #getOrientation()} returns an
+	 * {@code int} that {@code setOrientation} would accept, so an out-of-range one would
+	 * be a facing nobody could see was wrong.
+	 */
+	private static final int NO_FACING = 0;
+
+	private static final FollowerAnchor NO_PLAYER =
+		new FollowerAnchor(Resolution.NO_PLAYER, null, NO_FACING);
 	private static final FollowerAnchor FOREIGN_WORLD_VIEW =
-		new FollowerAnchor(Resolution.FOREIGN_WORLD_VIEW, null);
+		new FollowerAnchor(Resolution.FOREIGN_WORLD_VIEW, null, NO_FACING);
 	private static final FollowerAnchor OUTSIDE_SCENE =
-		new FollowerAnchor(Resolution.OUTSIDE_SCENE, null);
+		new FollowerAnchor(Resolution.OUTSIDE_SCENE, null, NO_FACING);
 
 	private final Resolution resolution;
 
 	@Nullable
 	private final WorldPoint tile;
 
-	private FollowerAnchor(Resolution resolution, @Nullable WorldPoint tile)
+	private final int orientation;
+
+	private FollowerAnchor(Resolution resolution, @Nullable WorldPoint tile, int orientation)
 	{
 		this.resolution = resolution;
 		this.tile = tile;
+		this.orientation = orientation;
 	}
 
 	/**
@@ -134,7 +169,8 @@ final class FollowerAnchor
 			topLevel.getBaseY() + sceneY,
 			topLevel.getPlane());
 
-		return new FollowerAnchor(Resolution.RESOLVED, tile);
+		// The target facing, not the interpolated one — see the class javadoc.
+		return new FollowerAnchor(Resolution.RESOLVED, tile, player.getOrientation());
 	}
 
 	boolean isResolved()
@@ -155,6 +191,17 @@ final class FollowerAnchor
 	WorldPoint getTile()
 	{
 		return tile;
+	}
+
+	/**
+	 * @return the way the player is facing, in the client's 0..2047 units. Meaningless on
+	 * an unresolved anchor, which nothing consults. Read by
+	 * {@link FollowerFacing#AS_I_AM} and by nothing else — a follower that is walking
+	 * faces the way it is walking.
+	 */
+	int getOrientation()
+	{
+		return orientation;
 	}
 
 	@Override

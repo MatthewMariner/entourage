@@ -192,8 +192,8 @@ final class FollowerWalk
 
 		if (toStation == 0)
 		{
-			// On its slot. Turn to face the player and hold the pose.
-			faceThe(anchor);
+			// On its slot: nothing to do. Which way it then points is
+			// FollowerFacing's answer rather than this class's — see the class javadoc.
 			return;
 		}
 
@@ -210,9 +210,9 @@ final class FollowerWalk
 
 		if (taken == 0)
 		{
-			// Nothing legal, or nothing knowable. Stand still and keep looking at the
-			// player, which is what a figure that cannot get to you would do.
-			faceThe(anchor);
+			// Nothing legal, or nothing knowable. Standing still is standing still: a
+			// follower stuck against a wall points wherever the facing setting says, the
+			// same as one that arrived.
 			return;
 		}
 
@@ -316,7 +316,17 @@ final class FollowerWalk
 		return running;
 	}
 
-	/** @return the direction the follower is facing, in 0..2047 */
+	/**
+	 * @return the direction of the last step taken, in 0..2047.
+	 *
+	 * <p><b>The direction of travel, not the facing.</b> This class used to own both:
+	 * arriving on the slot turned the follower to look at the player, and so did failing
+	 * to move. That is now {@link FollowerFacing}'s answer, applied by {@link Follower},
+	 * because "which way does it point while it stands there" became a setting and this
+	 * class cannot see the setting's inputs — the player's own orientation is not a thing
+	 * a tile can tell you. What is left here is the half that is genuinely movement: a
+	 * figure takes a step, and it faces the way the step went.
+	 */
 	int getOrientation()
 	{
 		return orientation;
@@ -433,24 +443,5 @@ final class FollowerWalk
 		moving = true;
 		orientation = StepOrientation.forStep(dx, dy);
 		return true;
-	}
-
-	/** Turns to look at the player without moving. */
-	private void faceThe(WorldPoint anchor)
-	{
-		face(Integer.signum(anchor.getX() - x), Integer.signum(anchor.getY() - y));
-	}
-
-	/**
-	 * Turns to face a direction without moving. A zero delta — the player standing on
-	 * the follower's own tile — leaves the facing alone rather than snapping it south.
-	 */
-	private void face(int dx, int dy)
-	{
-		int facing = StepOrientation.forStep(dx, dy);
-		if (facing != StepOrientation.NOT_MOVING)
-		{
-			orientation = facing;
-		}
 	}
 }

@@ -2,6 +2,7 @@ package com.matthewmariner.entourage;
 
 import org.junit.Test;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -44,6 +45,21 @@ public class EntourageConfigTest
 			config.canRun());
 	}
 
+	@Test
+	public void aFreshInstallSaysSomethingOnceAMinuteInMagenta()
+	{
+		assertTrue("the feature the dialogue settings exist for is on by default",
+			config.dialogue());
+		assertEquals("", config.dialogueLines());
+		assertEquals(100, config.dialogueIntervalTicks());
+		assertEquals(8, config.dialogueDwellTicks());
+		assertEquals(DialogueColour.MAGENTA, config.dialogueColour());
+		assertEquals(DialogueFont.REGULAR, config.dialogueFont());
+		assertFalse("a name over the head is opt-in", config.nameLabel());
+		assertFalse("and so is vanishing inside an instance", config.hideInInstances());
+		assertEquals(FollowerFacing.AT_ME, config.facing());
+	}
+
 	/**
 	 * <b>A default outside its own bounds is silently overridden and nothing says so.</b>
 	 * {@link EntourageSettings} clamps, so a default of 12 with a minimum raised to 14
@@ -60,6 +76,41 @@ public class EntourageConfigTest
 			config.followDistance(), settings.getFollowDistance());
 		assertEquals("the recall distance default is outside its own range",
 			config.recallDistance(), settings.getRecallDistance());
+		assertEquals("the dialogue interval default is outside its own range",
+			config.dialogueIntervalTicks(), settings.getDialogueIntervalTicks());
+		assertEquals("the dwell default is outside its own range, or longer than the interval",
+			config.dialogueDwellTicks(), settings.getDialogueDwellTicks());
+	}
+
+	/**
+	 * The cadence bounds in wall-clock terms, which is how the settings panel describes
+	 * them and how anybody reasons about them. The units are the thing that has gone wrong
+	 * before in this family of plugins: the client's other clock is the client tick, thirty
+	 * to a game tick, and reading one figure as the other is a thirtyfold error.
+	 */
+	@Test
+	public void theDialogueBoundsAreTheOnesTheDocumentationClaims()
+	{
+		assertEquals("six seconds", 6_000 / EntourageSettings.TICK_MILLIS,
+			EntourageSettings.MIN_DIALOGUE_INTERVAL_TICKS);
+		assertEquals("six minutes, past which the dial duplicates the off switch",
+			360_000 / EntourageSettings.TICK_MILLIS, EntourageSettings.MAX_DIALOGUE_INTERVAL_TICKS);
+		assertEquals("one minute", 60_000 / EntourageSettings.TICK_MILLIS,
+			EntourageSettings.DEFAULT_DIALOGUE_INTERVAL_TICKS);
+
+		assertEquals("three seconds, about one read of one line",
+			3_000 / EntourageSettings.TICK_MILLIS, EntourageSettings.MIN_DIALOGUE_DWELL_TICKS);
+		assertEquals("eighteen seconds", 18_000 / EntourageSettings.TICK_MILLIS,
+			EntourageSettings.MAX_DIALOGUE_DWELL_TICKS);
+
+		assertTrue("a range whose minimum exceeds its maximum clamps everything to one value",
+			EntourageSettings.MIN_DIALOGUE_INTERVAL_TICKS
+				< EntourageSettings.MAX_DIALOGUE_INTERVAL_TICKS);
+		assertTrue(EntourageSettings.MIN_DIALOGUE_DWELL_TICKS
+			< EntourageSettings.MAX_DIALOGUE_DWELL_TICKS);
+		assertTrue("the shipped dwell has to be comfortably inside the shipped interval",
+			EntourageSettings.DEFAULT_DIALOGUE_DWELL_TICKS
+				< EntourageSettings.DEFAULT_DIALOGUE_INTERVAL_TICKS);
 	}
 
 	@Test

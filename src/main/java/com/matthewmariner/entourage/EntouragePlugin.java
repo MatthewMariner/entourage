@@ -15,6 +15,8 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.overlay.Overlay;
+import net.runelite.client.ui.overlay.OverlayManager;
 
 /**
  * A cosmetic figure that walks with you and holds a pose when you stop.
@@ -51,6 +53,11 @@ import net.runelite.client.plugins.PluginDescriptor;
  *       {@code RuneLiteObject.tick(ticksSinceLastFrame)} on every registered object as
  *       it draws it. Calling that here as well would run every animation at double
  *       speed.</li>
+ *   <li><b>The overlay is registered here and nowhere else.</b>
+ *       {@link EntourageOverlay} draws whatever the followers are saying, so it is the
+ *       other thing this plugin hands to the client that has to be handed back:
+ *       {@code startUp} adds it and {@code shutDown} removes it, through
+ *       {@link OverlayRegistry} so that the pair can be asserted rather than read.</li>
  *   <li><b>Everything reaches {@link EntourageScene} on the client thread.</b>
  *       {@code @Subscribe} runs on the posting thread, so the handlers wrap their calls
  *       in {@link ClientThread#invoke} — which runs inline when we are already on the
@@ -75,8 +82,8 @@ import net.runelite.client.plugins.PluginDescriptor;
 	// in-client panel's copy of a string the hub listing also carries; the two
 	// used to differ from each other, and both used to promise a group while the
 	// plugin shipped one figure. Change them together.
-	description = "A cosmetic figure of your choosing that walks with you and holds a pose when you stop",
-	tags = {"cosmetic", "follower", "entourage", "immersion", "npc"}
+	description = "A cosmetic figure of your choosing that walks with you, poses when you stop and says the odd thing",
+	tags = {"cosmetic", "follower", "entourage", "immersion", "npc", "dialogue"}
 )
 public class EntouragePlugin extends Plugin
 {
@@ -104,6 +111,12 @@ public class EntouragePlugin extends Plugin
 	@Inject
 	EntourageScene scene;
 
+	@Inject
+	OverlayRegistry overlayRegistry;
+
+	@Inject
+	EntourageOverlay overlay;
+
 	/**
 	 * {@code getGameCycle()} at the last game tick that was processed.
 	 *
@@ -123,6 +136,8 @@ public class EntouragePlugin extends Plugin
 	protected void startUp()
 	{
 		log.debug("Entourage starting");
+
+		overlayRegistry.add(overlay);
 
 		// Enabling the plugin mid-session is the common case in dev, and there is no
 		// state change coming to trigger the first pass.
@@ -144,6 +159,14 @@ public class EntouragePlugin extends Plugin
 	@Override
 	protected void shutDown()
 	{
+		// Removed before the scene is torn down, and synchronously: an overlay left in the
+		// OverlayManager goes on being drawn, and it would be drawing from a roster that
+		// is being emptied underneath it. It is the same promise as the one below about
+		// registered objects — nothing this plugin put somewhere may outlive it — and
+		// EntouragePluginLifecycleTest pins both against a registry rather than against
+		// this method being read.
+		overlayRegistry.remove(overlay);
+
 		// Not blocking: invoke() runs inline on the client thread and defers otherwise.
 		// The count lands in the log either way.
 		//
@@ -263,5 +286,28 @@ public class EntouragePlugin extends Plugin
 	EntourageConfig provideConfig(ConfigManager configManager)
 	{
 		return configManager.getConfig(EntourageConfig.class);
+	}
+
+	/**
+	 * The plugin's only overlay registration path — see {@link OverlayRegistry} for why
+	 * the manager is behind an interface at all.
+	 */
+	@Provides
+	OverlayRegistry provideOverlayRegistry(OverlayManager overlayManager)
+	{
+		return new OverlayRegistry()
+		{
+			@Override
+			public void add(Overlay overlay)
+			{
+				overlayManager.add(overlay);
+			}
+
+			@Override
+			public void remove(Overlay overlay)
+			{
+				overlayManager.remove(overlay);
+			}
+		};
 	}
 }

@@ -6,6 +6,7 @@ import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -188,6 +189,135 @@ public class EntourageSceneTest
 		assertEquals(ROSTER_SIZE, client.registeredCount());
 		assertEquals("coming back is an activate, not a rebuild",
 			mergesAfterFirstSpawn, client.mergeCalls());
+	}
+
+	// --- Instances -----------------------------------------------------------
+
+	/**
+	 * A raid, a quest cutscene, the Inferno. Deactivating rather than merely not drawing,
+	 * for the same reason the no-anchor branch does: an object left registered is a figure
+	 * standing in an instance that this pass has stopped looking after.
+	 */
+	@Test
+	public void insideAnInstanceNothingIsDrawnWhenTheSettingIsOn()
+	{
+		config.setHideInInstances(true);
+		EntourageScene scene = scene();
+		scene.onGameTick();
+		assertTrue("it has to be on screen before hiding it means anything",
+			client.registeredCount() > 0);
+
+		view.asInstance();
+		scene.onGameTick();
+
+		assertEquals(0, client.registeredCount());
+	}
+
+	/**
+	 * <b>And off by default, which is the shipped behaviour and not an accident.</b> A
+	 * Player Owned House is an instance too, and it is where a cosmetic follower is most
+	 * wanted — so the fixture below is the same instance with the setting left alone.
+	 */
+	@Test
+	public void insideAnInstanceTheFollowerStaysUnlessAskedToGo()
+	{
+		EntourageScene scene = scene();
+		view.asInstance();
+
+		scene.onGameTick();
+
+		assertEquals("the plugin has always worked in instances and still does",
+			ROSTER_SIZE, client.registeredCount());
+	}
+
+	@Test
+	public void aFollowerHiddenInAnInstanceStopsTalkingToo()
+	{
+		config.setHideInInstances(true);
+		EntourageScene scene = scene();
+		scene.onGameTick();
+
+		Follower follower = scene.getFollowers().get(0);
+		follower.getRemarks().say(0, Integer.MAX_VALUE, FigureLines.of(follower.getFigure()));
+		assertTrue("the fixture has to be talking first", follower.getRemarks().isTalking());
+
+		view.asInstance();
+		scene.onGameTick();
+
+		assertFalse("a line left up is text drawn over an empty tile",
+			follower.getRemarks().isTalking());
+	}
+
+	// --- Dialogue ------------------------------------------------------------
+
+	/**
+	 * The chatter is driven by the scene's own tick, so a follower that is on screen
+	 * eventually says one of its lines without anything else being wired up.
+	 */
+	@Test
+	public void theSceneDrivesTheChatter()
+	{
+		EntourageScene scene = scene();
+		scene.onGameTick();
+		Follower follower = scene.getFollowers().get(0);
+
+		String said = null;
+		for (int tick = 0; tick < EntourageSettings.DEFAULT_DIALOGUE_INTERVAL_TICKS + 1
+			&& said == null; tick++)
+		{
+			scene.onGameTick();
+			said = follower.getRemarks().text();
+		}
+
+		assertNotNull("nothing drives the chatter", said);
+		assertTrue("and it is one of the figure's own lines",
+			FigureLines.of(follower.getFigure()).contains(said));
+	}
+
+	/**
+	 * A scene load empties the line as well as the screen, and restarts the cadence.
+	 *
+	 * <p><b>The clock is the half that needs asking about.</b> The line is cleared by the
+	 * despawn the invalidation already does — {@code Follower.despawn()} clears its own —
+	 * so an invalidation that forgot the chatter entirely would still leave nothing on
+	 * screen and pass an assertion about the text. What it would leave is a follower
+	 * inheriting a phase from the world it was in before, so that it either speaks the
+	 * instant it arrives in the next one or waits out most of an interval it already
+	 * spent. A mutation pass deleting the reset went green until this asked.
+	 */
+	@Test
+	public void invalidateStopsTheTalkingAndRestartsTheCadence()
+	{
+		EntourageScene scene = scene();
+		for (int tick = 0; tick < 5; tick++)
+		{
+			scene.onGameTick();
+		}
+		assertTrue("the fixture has to have run the cadence first", scene.getChatter().getTick() > 0);
+
+		Follower follower = scene.getFollowers().get(0);
+		follower.getRemarks().say(0, Integer.MAX_VALUE, FigureLines.of(follower.getFigure()));
+
+		scene.invalidate("LOADING");
+
+		assertFalse(follower.getRemarks().isTalking());
+		assertEquals("a fresh world starts a fresh phase", 0, scene.getChatter().getTick());
+	}
+
+	/** And so does a teardown, for the same reason. */
+	@Test
+	public void shutdownRestartsTheCadenceToo()
+	{
+		EntourageScene scene = scene();
+		for (int tick = 0; tick < 5; tick++)
+		{
+			scene.onGameTick();
+		}
+		assertTrue(scene.getChatter().getTick() > 0);
+
+		scene.shutdown();
+
+		assertEquals(0, scene.getChatter().getTick());
 	}
 
 	// --- Teardown ------------------------------------------------------------

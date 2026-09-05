@@ -61,6 +61,13 @@ final class FakeWorldView extends StubWorldView
 
 	private boolean collisionDataAvailable = true;
 
+	/**
+	 * Whether this is a private copy of an area — a raid, a quest cutscene, a Player
+	 * Owned House. False by default, which is the overworld and every other test's
+	 * assumption.
+	 */
+	private boolean instance;
+
 	private FakeWorldView(int baseX, int baseY, int sizeX, int sizeY, int plane)
 	{
 		this.baseX = baseX;
@@ -175,6 +182,25 @@ final class FakeWorldView extends StubWorldView
 	{
 		this.id = 7;
 		return this;
+	}
+
+	/**
+	 * Makes this scene a private copy of an area. Independent of
+	 * {@link #asWorldEntityView()}, and deliberately so: an instance is still the
+	 * top-level view — a raid is where the player is, not a boat they are standing on —
+	 * so the anchor resolves there exactly as it does outside and the only thing that
+	 * refuses to draw is the instance setting itself.
+	 */
+	FakeWorldView asInstance()
+	{
+		this.instance = true;
+		return this;
+	}
+
+	@Override
+	public boolean isInstance()
+	{
+		return instance;
 	}
 
 	// --- Collision ------------------------------------------------------------

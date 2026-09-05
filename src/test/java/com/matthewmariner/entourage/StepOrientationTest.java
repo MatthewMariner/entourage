@@ -129,4 +129,52 @@ public class StepOrientationTest
 		assertEquals(StepOrientation.forStep(-1, 1), StepOrientation.forStep(-4, 7));
 		assertEquals(StepOrientation.forStep(0, -1), StepOrientation.forStep(0, -12));
 	}
+
+	// --- Normalising an angle this plugin did not compute ---------------------
+
+	/**
+	 * A facing already inside one turn is left exactly as it is — including the two ends,
+	 * where an off-by-one would turn a figure a full quarter circle.
+	 */
+	@Test
+	public void anAngleAlreadyInsideOneTurnIsUnchanged()
+	{
+		assertEquals(0, StepOrientation.normalise(0));
+		assertEquals(EAST, StepOrientation.normalise(EAST));
+		assertEquals(StepOrientation.TURN_UNITS - 1,
+			StepOrientation.normalise(StepOrientation.TURN_UNITS - 1));
+	}
+
+	@Test
+	public void aFullTurnComesBackToWhereItStarted()
+	{
+		assertEquals(0, StepOrientation.normalise(StepOrientation.TURN_UNITS));
+		assertEquals(WEST, StepOrientation.normalise(StepOrientation.TURN_UNITS * 3 + WEST));
+	}
+
+	/**
+	 * <b>A negative angle is a facing, not a sentinel.</b> {@code -512 % 2048} is
+	 * {@code -512}, and a negative orientation is an angle the renderer was never given —
+	 * so this has to be a floor-mod rather than a remainder.
+	 */
+	@Test
+	public void aNegativeAngleComesBackAsAFacing()
+	{
+		assertEquals(EAST, StepOrientation.normalise(-WEST));
+		assertEquals(WEST, StepOrientation.normalise(-EAST));
+		assertEquals(0, StepOrientation.normalise(-StepOrientation.TURN_UNITS));
+	}
+
+	@Test
+	public void nothingComesOutOfNormaliseOutsideOneTurn()
+	{
+		for (int angle = -5000; angle <= 5000; angle += 7)
+		{
+			int normalised = StepOrientation.normalise(angle);
+			assertTrue(angle + " normalised to " + normalised,
+				normalised >= 0 && normalised < StepOrientation.TURN_UNITS);
+		}
+
+		assertTrue(StepOrientation.normalise(Integer.MIN_VALUE) >= 0);
+	}
 }

@@ -36,6 +36,21 @@ public enum FormationSlot
 	BEHIND("Behind me"),
 
 	/**
+	 * Directly in front, on the heading itself — a figure walking point.
+	 *
+	 * <p><b>It leads you without knowing where you are going</b>, and that is worth
+	 * saying out loud rather than discovering: the slot is a tile ahead of the direction
+	 * you last travelled, so the moment you turn, the follower is beside or behind you
+	 * and has to walk round to the front again. Turn on the spot and it circles you,
+	 * which is the exact behaviour {@link #BEHIND} is measured against direction of
+	 * travel to avoid — here it is the honest consequence of asking for a figure in
+	 * front. It is also the one slot that regularly stands between you and what you are
+	 * clicking on, which no plugin-drawn object blocks (a {@code RuneLiteObject} takes no
+	 * clicks) but which does put a body over the thing you are looking at.
+	 */
+	AHEAD("Ahead of me"),
+
+	/**
 	 * Abreast on the player's left, i.e. the heading rotated a quarter turn
 	 * anticlockwise. Walking north puts the follower to the west.
 	 */
@@ -84,6 +99,9 @@ public enum FormationSlot
 	{
 		switch (this)
 		{
+			case AHEAD:
+				// The heading itself, unturned.
+				return headingX;
 			case LEFT:
 				// A quarter turn anticlockwise: (x, y) -> (-y, x).
 				return -headingY;
@@ -100,6 +118,8 @@ public enum FormationSlot
 	{
 		switch (this)
 		{
+			case AHEAD:
+				return headingY;
 			case LEFT:
 				return headingX;
 			case RIGHT:

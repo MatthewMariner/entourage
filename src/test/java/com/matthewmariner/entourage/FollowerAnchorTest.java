@@ -91,6 +91,52 @@ public class FollowerAnchorTest
 			FollowerAnchor.of(FakePlayer.partWayFrom(view, STANDING, destination, 0.6f), view).getTile());
 	}
 
+	// --- The player's facing -------------------------------------------------
+
+	/**
+	 * <b>The anchor carries the facing the player has settled on, not the one the body has
+	 * turned as far as.</b> Disassembling 1.12.38, {@code getOrientation()} and
+	 * {@code getCurrentOrientation()} are two different fields of the actor:
+	 * the client computes {@code (target - current) & 2047}, picks a turn-on-the-spot pose
+	 * from it, and then advances {@code current} towards {@code target} by the actor's turn
+	 * speed. A follower's orientation is written once per game tick, and {@code current}
+	 * moves thirty times in one of those — so sampling it would catch the player's turn at
+	 * an arbitrary point and hold that angle for the rest of the tick.
+	 *
+	 * <p>{@link FakePlayer} answers the two accessors with different numbers, so reading
+	 * the wrong one is an assertion failure naming the wrong number rather than a test
+	 * that happens to pass.
+	 */
+	@Test
+	public void theAnchorTakesTheFacingThePlayerHasSettledOn()
+	{
+		FakeWorldView view = FakeWorldView.around(STANDING);
+		FakePlayer player = FakePlayer.standingOn(view, STANDING).facing(768);
+
+		FollowerAnchor anchor = FollowerAnchor.of(player, view);
+
+		assertEquals(768, anchor.getOrientation());
+		assertNotEquals("that is the interpolated field, which turns thirty times a game tick",
+			FakePlayer.INTERPOLATED_ORIENTATION, anchor.getOrientation());
+	}
+
+	/**
+	 * The facing is carried through unchanged, whatever it is — normalising is
+	 * {@link FollowerFacing}'s job, one layer up, and doing it in both places would be two
+	 * definitions of the same rule.
+	 */
+	@Test
+	public void theFacingIsCarriedThroughRatherThanInterpreted()
+	{
+		FakeWorldView view = FakeWorldView.around(STANDING);
+
+		for (int facing : new int[]{0, 1, 1023, StepOrientation.TURN_UNITS - 1})
+		{
+			assertEquals(facing, FollowerAnchor
+				.of(FakePlayer.standingOn(view, STANDING).facing(facing), view).getOrientation());
+		}
+	}
+
 	@Test
 	public void thePlaneComesFromTheView()
 	{
