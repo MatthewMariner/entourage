@@ -27,6 +27,24 @@ import java.util.Locale;
  * substrings would rank "Elite Black Knight" above "Knight" for "knight". And a name
  * misremembered by one letter — "Duradal", "Vanaka", "Sorcress" — is the case a list this
  * short makes most annoying, because the figure is plainly there and the box says nothing.
+ *
+ * <p><b>The near tier here is deliberately an addition, not a fallback — the opposite of
+ * {@code MonsterIndex}'s choice, for the opposite reason.</b> {@code MonsterIndex.matching}
+ * only runs its near pass {@code if (found.isEmpty())}, precisely so that "spid" cannot put
+ * Spindel in the middle of a search for spiders: over sixteen thousand names a query that
+ * matches properly is common and a near match that always ran would dilute it. {@link
+ * #tierOf} has no such guard and runs {@link #isNear} unconditionally whenever the cheap
+ * tiers miss — over twenty-three names a query that matches nothing real is common enough
+ * that {@code aNearMatchSortsBelowEveryRealMatch} pins the opposite behaviour on purpose:
+ * "dura" is meant to still offer "Turael" underneath "Duradel". Sixteen thousand and
+ * twenty-three are different problems, and this is not the same guard ported over.
+ *
+ * <p>The two distance functions differ as well. {@link #distance} is plain Levenshtein;
+ * {@code MonsterIndex.prefixDistance} is banded and counts two neighbouring letters swapped
+ * as one edit rather than two. A transposition inside a name — "turale" for "Turael" — can
+ * therefore resolve against the game's sixteen thousand and not against this list's
+ * twenty-three, or vice versa depending on which budget it falls inside. Worth knowing
+ * before assuming the two searches would agree on a name typed the same way into both.
  */
 final class FigureSearch
 {
