@@ -20,9 +20,9 @@ and nothing about any other player is read.
 > **Not on the Plugin Hub yet.** Build and run it yourself — see
 > [Development](#development) below.
 
-<!-- SCREENSHOT: the follower mid-stride a tile behind the player, ideally caught on a
-     diagonal step so the facing reads clearly. Save as docs/img/follower.png and replace
-     this comment with:  ![Follower mid-walk](docs/img/follower.png) -->
+![Three followers in a hangout ring outside Varrock's east bank, two seated, one
+mid-step, each with its name above it and the thief saying "That pocket looked
+heavy."](docs/img/hero.png)
 
 ---
 
@@ -68,6 +68,9 @@ the moment you stop, rather than standing there as static, sliding meshes.
   nothing about any other player is read.
 
 ## Settings
+
+<img src="docs/img/settings.png" alt="The Entourage settings panel, showing the Roster,
+Movement, Pose and Dialogue sections" align="right" width="230">
 
 | Setting | What it does | Default |
 |---|---|---|
