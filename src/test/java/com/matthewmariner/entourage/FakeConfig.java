@@ -1,7 +1,14 @@
 package com.matthewmariner.entourage;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import javax.annotation.Nullable;
+import static org.junit.Assert.fail;
+
 /**
- * A settable {@link EntourageConfig}.
+ * A settable {@link EntourageConfig}, which is also the {@link ConfigWriter} that writes
+ * into it.
  *
  * <p>No mocking framework needed and none available: a RuneLite config is an interface
  * of {@code default} methods, so the defaults come for free and only the parts a test
@@ -17,9 +24,27 @@ package com.matthewmariner.entourage;
  * purpose: {@link EntourageSettings} is the thing that clamps, and a fixture that
  * refused an out-of-range value would make the clamp untestable. A profile edited by
  * hand really can hold {@code followDistance=0}.
+ *
+ * <h2>Why the same object is the writer</h2>
+ *
+ * <p>Because "the setting still round-trips" is the promise the panel has to keep, and it
+ * is only a promise a test can check if the write and the read go through the same object
+ * they do in the client. {@link #write} parses a key exactly as {@code ConfigManager}
+ * would — an enum by {@code name()}, an int by {@code parseInt}, {@code null} meaning
+ * "remove the key so the default applies" — and the getter above it is what
+ * {@link EntourageSettings} reads. So a panel that wrote {@code figure3} when it meant
+ * {@code figure4} fails here rather than in a live client.
+ *
+ * <p><b>An unknown key fails the test rather than being ignored.</b> That is the whole
+ * value of this fixture: {@code ConfigManager} accepts any string as a key and stores it
+ * happily, so a misspelled key in the plugin is a setting that saves, reloads and does
+ * nothing, with no error anywhere. Here it stops the test.
  */
-final class FakeConfig implements EntourageConfig
+final class FakeConfig implements EntourageConfig, ConfigWriter
 {
+	/** Every write, in order, as {@code key=value} — {@code key=} for a removal. */
+	private final List<String> writes = new ArrayList<>();
+
 	private int followers = EntourageConfig.super.followers();
 	private EntourageFigure figure = EntourageConfig.super.figure();
 	private EntourageFigure figure2 = EntourageConfig.super.figure2();
@@ -46,6 +71,78 @@ final class FakeConfig implements EntourageConfig
 	EntourageSettings settings()
 	{
 		return EntourageSettings.from(this);
+	}
+
+	/** @return this config as the panel reads it */
+	RosterView view()
+	{
+		return RosterView.of(this);
+	}
+
+	/**
+	 * The {@link ConfigWriter} half: applies a write the way {@code ConfigManager} would.
+	 *
+	 * <p>{@code null} removes the key, which is what {@code unsetConfiguration} does, and
+	 * here means putting the field back to the interface's own default rather than to zero
+	 * or to whatever it happened to hold.
+	 */
+	@Override
+	public void write(String key, @Nullable String value)
+	{
+		writes.add(key + "=" + (value == null ? "" : value));
+
+		switch (key)
+		{
+			case EntourageConfig.KEY_FOLLOWERS:
+				followers = value == null
+					? EntourageConfig.super.followers() : Integer.parseInt(value);
+				break;
+			case EntourageConfig.KEY_FIGURE:
+				figure = value == null ? EntourageConfig.super.figure() : EntourageFigure.valueOf(value);
+				break;
+			case EntourageConfig.KEY_FIGURE_2:
+				figure2 = value == null ? EntourageConfig.super.figure2() : EntourageFigure.valueOf(value);
+				break;
+			case EntourageConfig.KEY_FIGURE_3:
+				figure3 = value == null ? EntourageConfig.super.figure3() : EntourageFigure.valueOf(value);
+				break;
+			case EntourageConfig.KEY_FIGURE_4:
+				figure4 = value == null ? EntourageConfig.super.figure4() : EntourageFigure.valueOf(value);
+				break;
+			case EntourageConfig.KEY_FIGURE_5:
+				figure5 = value == null ? EntourageConfig.super.figure5() : EntourageFigure.valueOf(value);
+				break;
+			case EntourageConfig.KEY_CUSTOM_NPC_ID:
+				customNpcId = value == null
+					? EntourageConfig.super.customNpcId() : Integer.parseInt(value);
+				break;
+			case EntourageConfig.KEY_FOLLOW_DISTANCE:
+				followDistance = value == null
+					? EntourageConfig.super.followDistance() : Integer.parseInt(value);
+				break;
+			case EntourageConfig.KEY_FORMATION:
+				formation = value == null
+					? EntourageConfig.super.formation() : EntourageFormation.valueOf(value);
+				break;
+			default:
+				// ConfigManager would store this happily and nothing would ever read it,
+				// which is a control that saves and does nothing. Here it is a failure.
+				fail("nothing reads the config key \"" + key + "\"");
+				break;
+		}
+	}
+
+	/** @return every write this fixture has taken, oldest first, as {@code key=value} */
+	List<String> writes()
+	{
+		return Collections.unmodifiableList(writes);
+	}
+
+	/** Forgets the log, so a test can assert on what one gesture wrote. */
+	FakeConfig clearWrites()
+	{
+		writes.clear();
+		return this;
 	}
 
 	/** The shipped defaults, as a snapshot. */

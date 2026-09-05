@@ -298,7 +298,7 @@ final class EntourageSettings
 
 		return new EntourageSettings(
 			readBodies(config),
-			clamp(config.followDistance(), MIN_FOLLOW_DISTANCE, MAX_FOLLOW_DISTANCE),
+			effectiveFollowDistance(config.followDistance()),
 			clamp(config.recallDistance(), MIN_RECALL_DISTANCE, MAX_RECALL_DISTANCE),
 			formation == null ? EntourageFormation.DEFAULT : formation,
 			facing == null ? FollowerFacing.AT_ME : facing,
@@ -329,7 +329,7 @@ final class EntourageSettings
 	 */
 	private static List<FollowerBody> readBodies(EntourageConfig config)
 	{
-		int followers = clamp(config.followers(), MIN_FOLLOWERS, MAX_FOLLOWERS);
+		int followers = effectiveFollowers(config.followers());
 
 		// Read raw and handed straight to FollowerBody.custom, which is where a typed id is
 		// floored and where the reasoning about its bounds lives. A second clamp here would
@@ -349,14 +349,48 @@ final class EntourageSettings
 	}
 
 	/**
+	 * The roster count this plugin will actually use for a configured value.
+	 *
+	 * <p>Package-private and named rather than inlined, because {@link RosterView} needs
+	 * the same answer to decide which of the five slot cards are in play — and a second
+	 * clamp written over there would be the same rule twice, with neither copy falsifiable
+	 * on its own. The panel drawing four active cards while the scene spawned five is
+	 * exactly the disagreement one shared answer makes impossible.
+	 *
+	 * @return the value inside {@link #MIN_FOLLOWERS} .. {@link #MAX_FOLLOWERS}
+	 */
+	static int effectiveFollowers(int requested)
+	{
+		return clamp(requested, MIN_FOLLOWERS, MAX_FOLLOWERS);
+	}
+
+	/**
+	 * The follow distance this plugin will actually use for a configured value.
+	 *
+	 * @return the value inside {@link #MIN_FOLLOW_DISTANCE} ..
+	 * {@link #MAX_FOLLOW_DISTANCE}. Shared with {@link RosterView} and {@link RosterEdit}
+	 * for the reason {@link #effectiveFollowers(int)} gives.
+	 */
+	static int effectiveFollowDistance(int requested)
+	{
+		return clamp(requested, MIN_FOLLOW_DISTANCE, MAX_FOLLOW_DISTANCE);
+	}
+
+	/**
 	 * @param index which slot, 0-based
 	 * @return the figure that slot names. Null-checked for the same reason the enums above
 	 * are: {@code ConfigManager} resolves an unknown enum name to the interface default
 	 * rather than to null, so this guards an implementation this plugin does not own — and
 	 * the cost of being wrong is an NPE inside a game-tick handler rather than a
 	 * wrong-looking follower.
+	 *
+	 * <p>Package-private so {@link RosterView} reads a slot the same way the scene does.
+	 * The mapping from a slot number to one of five differently-named getters is the sort
+	 * of thing that is copied wrong once and then disagrees forever: a panel that read
+	 * slot 4 out of {@code figure5()} would show the wrong figure on a card and write the
+	 * right one to the profile.
 	 */
-	private static EntourageFigure figureAt(EntourageConfig config, int index)
+	static EntourageFigure figureAt(EntourageConfig config, int index)
 	{
 		EntourageFigure figure;
 		switch (index)
