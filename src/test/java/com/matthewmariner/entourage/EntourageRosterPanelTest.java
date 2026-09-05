@@ -580,7 +580,7 @@ public class EntourageRosterPanelTest
 	{
 		EntourageRosterPanel panel = panel();
 
-		press(pressableFor(rowFor(panel, "Follow distance" + EntourageConfig.TILES), "2"));
+		press(pressableFor(rowFor(panel, "Follow distance"), "2"));
 
 		assertEquals(2, config.view().getFollowDistance());
 		assertEquals("and the scene walks them two tiles out",

@@ -268,20 +268,24 @@ class EntourageRosterPanel extends PluginPanel
 		JLabel heading = new JLabel(slot.getHeading());
 		heading.setFont(FontManager.getRunescapeSmallFont());
 		heading.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
-		text.add(heading);
+		text.add(left(heading));
 
 		JLabel title = new JLabel(slot.getTitle());
 		title.setFont(FontManager.getRunescapeBoldFont());
 		title.setForeground(slot.isActive()
 			? ColorScheme.BRAND_ORANGE : ColorScheme.MEDIUM_GRAY_COLOR);
-		text.add(title);
+		text.add(left(title));
 
 		JLabel subtitle = new JLabel(slot.getSubtitle());
 		subtitle.setFont(FontManager.getRunescapeSmallFont());
 		subtitle.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
-		text.add(subtitle);
+		text.add(left(subtitle));
 
-		card.add(text, BorderLayout.WEST);
+		// CENTER rather than WEST: BorderLayout gives a WEST child its full preferred width,
+		// so a long subtitle — "Typed id, or Elite Black Knight if refused" — would push the
+		// × off the end of a 225-pixel card. In CENTER it gets what is left and clips itself
+		// with an ellipsis, which is the half of the card that can afford to lose a word.
+		card.add(text, BorderLayout.CENTER);
 
 		if (slot.isActive() && view.canRemove())
 		{
@@ -407,7 +411,7 @@ class EntourageRosterPanel extends PluginPanel
 
 		section.add(formationRow(view));
 
-		section.add(pips("Follow distance" + EntourageConfig.TILES,
+		section.add(pips("Follow distance",
 			EntourageSettings.MIN_FOLLOW_DISTANCE, EntourageSettings.MAX_FOLLOW_DISTANCE,
 			view.getFollowDistance(),
 			value -> apply(() -> RosterEdit.setFollowDistance(writer, value))));
@@ -428,7 +432,7 @@ class EntourageRosterPanel extends PluginPanel
 		JLabel name = new JLabel(label);
 		name.setFont(FontManager.getRunescapeSmallFont());
 		name.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		row.add(name, BorderLayout.WEST);
+		row.add(name, BorderLayout.CENTER);
 
 		JPanel choices = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
 		choices.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -567,7 +571,7 @@ class EntourageRosterPanel extends PluginPanel
 		JLabel name = new JLabel(figure.getDisplayName());
 		name.setFont(FontManager.getRunescapeSmallFont());
 		name.setForeground(current ? ColorScheme.BRAND_ORANGE : ColorScheme.TEXT_COLOR);
-		row.add(name, BorderLayout.WEST);
+		row.add(name, BorderLayout.CENTER);
 
 		if (current)
 		{
@@ -628,7 +632,7 @@ class EntourageRosterPanel extends PluginPanel
 			? "Wearing NPC " + view.getCustomNpcId() : "Any NPC, by id");
 		title.setFont(FontManager.getRunescapeBoldFont());
 		title.setForeground(ColorScheme.BRAND_ORANGE);
-		top.add(title, BorderLayout.WEST);
+		top.add(title, BorderLayout.CENTER);
 
 		if (view.isCustom())
 		{
@@ -756,6 +760,20 @@ class EntourageRosterPanel extends PluginPanel
 		return label;
 	}
 
+	/**
+	 * Pins a label to the left edge of a {@code BoxLayout} column.
+	 *
+	 * <p>Not a nicety. {@code BoxLayout} on the Y axis positions each child by its
+	 * {@code alignmentX}, and a {@code JLabel}'s default is <b>centre</b> — so a card whose
+	 * widest line is its subtitle would draw "Slot 1" and the figure's name centred over it,
+	 * which reads as a layout that was never looked at.
+	 */
+	private static JLabel left(JLabel label)
+	{
+		label.setAlignmentX(LEFT_ALIGNMENT);
+		return label;
+	}
+
 	/** Muted grey prose that wraps, which a plain label does not. */
 	private JPanel paragraph(String text)
 	{
@@ -767,11 +785,13 @@ class EntourageRosterPanel extends PluginPanel
 
 	private static JLabel muted(String text)
 	{
-		// The width is stated because HTML in a label has no other way to know where to
-		// wrap; without it the label lays out on one line and the panel grows a horizontal
-		// scrollbar.
-		JLabel label = new JLabel("<html><div style='width:" + (PANEL_WIDTH - 32) + "px'>"
-			+ text + "</div></html>");
+		// A one-cell table rather than a styled div, and the difference is not cosmetic: a
+		// CSS width on a div or a body is honoured when the view is *painted* and ignored when
+		// its preferred size is *measured*, so the label asks for 266 pixels in a 225-pixel
+		// sidebar and every line runs off the right edge. A table cell's width participates in
+		// the measurement, which is the whole job. Checked by rendering all three offline.
+		JLabel label = new JLabel("<html><table><tr><td width='" + (PANEL_WIDTH - 32) + "'>"
+			+ text + "</td></tr></table></html>");
 		label.setFont(FontManager.getRunescapeSmallFont());
 		label.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
 		return label;
