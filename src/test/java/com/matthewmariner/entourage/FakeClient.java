@@ -10,6 +10,7 @@ import java.util.Set;
 import javax.annotation.Nullable;
 import net.runelite.api.Animation;
 import net.runelite.api.GameState;
+import net.runelite.api.IndexDataBase;
 import net.runelite.api.ModelData;
 import net.runelite.api.NPCComposition;
 import net.runelite.api.Player;
@@ -312,6 +313,41 @@ final class FakeClient extends StubClient
 		{
 			throwingAnimations.add(id);
 		}
+		return this;
+	}
+
+	// --- The config index ----------------------------------------------------
+
+	/**
+	 * The config index, or {@code null} — which is what the real client answers before
+	 * one is up, and is therefore the honest default for a client nobody has logged into.
+	 * A test that wants {@link NpcArchive} to get anywhere has to say so.
+	 */
+	@Nullable
+	private FakeIndexDataBase indexConfig;
+
+	private boolean throwFromIndexConfig;
+
+	@Override
+	@Nullable
+	public IndexDataBase getIndexConfig()
+	{
+		if (throwFromIndexConfig)
+		{
+			throw new IllegalStateException("the config index is not available");
+		}
+		return indexConfig;
+	}
+
+	FakeClient withIndexConfig(FakeIndexDataBase index)
+	{
+		this.indexConfig = index;
+		return this;
+	}
+
+	FakeClient withThrowingIndexConfig()
+	{
+		throwFromIndexConfig = true;
 		return this;
 	}
 
