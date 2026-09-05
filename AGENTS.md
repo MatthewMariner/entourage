@@ -204,3 +204,23 @@ expected to bear on it. Three rules that do:
   figure standing in the world that nothing owns and nothing can remove short of
   a client restart. `EntouragePluginLifecycleTest` pins it against the client's
   own registered-object list rather than against our bookkeeping.
+
+  **"Registered" covers everything handed to the client, not only the objects.**
+  There are three now — the `RuneLiteObject`s, the `EntourageOverlay`, and the
+  `NavigationButton` that carries `EntourageRosterPanel` — and all three are held
+  to the same standard by the same test, counted off a recording seam rather than
+  read off `shutDown()`. An overlay left in the `OverlayManager` goes on drawing;
+  a button left in the `ClientToolbar` opens a panel that goes on writing settings
+  for a plugin that is not running, and unlike the other two the user can see it
+  sitting there. Anything else this plugin ever hands the client joins that list.
+
+- **Swing is not the client thread, and `startUp()` runs on Swing's.**
+  `PluginManager` calls `startUp()`, `shutDown()` and every panel listener from the
+  event dispatch thread, while `Client` reads throw off the client thread — an
+  `IllegalStateException` in a shipped client, an assertion in a development one.
+  So `EntourageRosterPanel` reads the config proxy and two enums and nothing else,
+  and everything it draws comes from `RosterView`, which is under the same rule.
+  Anything that genuinely needs the client has to be marshalled with
+  `ClientThread#invoke` and pushed back to Swing with `SwingUtilities#invokeLater`,
+  the way `../gunnars-tools`' `SidePanel#refresh` does it — never read inline
+  because it happens to work in a dev client with assertions off.

@@ -13,7 +13,7 @@ read.
 [![RuneLite](https://img.shields.io/badge/RuneLite-1.12.38-blue)](https://runelite.net)
 [![Java](https://img.shields.io/badge/Java-11-orange)](https://runelite.net)
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-460-brightgreen)](#development)
+[![Tests](https://img.shields.io/badge/tests-539-brightgreen)](#development)
 
 </div>
 
@@ -62,6 +62,12 @@ the moment you stop, rather than standing there as static, sliding meshes.
   it can't cut through a doorframe to reach you. A run is two steps, so it's two
   checks. Idle, walking and running are three purpose-built animation
   controllers, and the client itself advances them, so nothing plays doubled.
+- **Has a panel to pick them in.** The button in the sidebar opens five cards
+  saying who walks with you, with a search over the twenty-three that forgives a
+  mistyped letter, an add and a remove that treat the roster as the list it is,
+  and the three dials worth changing while you are looking at them. Everything it
+  writes is the same setting the plugin's own settings screen shows, so the two
+  never disagree.
 - **Works in instances too** — a Player Owned House, a raid, anywhere the game
   hands out its own private copy of an area — because its position math is
   self-consistent. There's a switch to hide it in them if you'd rather.
@@ -72,6 +78,12 @@ the moment you stop, rather than standing there as static, sliding meshes.
 
 <img src="docs/img/settings.png" alt="The Entourage settings panel, showing the Roster,
 Movement, Pose and Dialogue sections" align="right" width="230">
+
+**Most of the Roster section has a nicer front door.** The Entourage button in
+RuneLite's sidebar opens a roster panel — five cards, a search, and an add and a
+remove — which writes these same settings and nothing else. See [The side
+panel](#the-side-panel) below. Everything in the table is still here, still works,
+and still says what it always said.
 
 | Setting | What it does | Default |
 |---|---|---|
@@ -95,6 +107,42 @@ Movement, Pose and Dialogue sections" align="right" width="230">
 
 Only looping poses are offered, on purpose — a one-shot emote plays once and then
 freezes on its last frame, which looks like a bug rather than a pose.
+
+### The side panel
+
+**The button in RuneLite's sidebar is the roster, as a roster.** The table above
+is fifteen controls in a list; the panel is the five that answer "who walks with
+me", laid out as five cards you can press.
+
+- **Five slot cards.** Each says which slot it is, who is in it, and whether it is
+  walking with you. Press one to change who is in it. **Slots past the follower
+  count are greyed rather than hidden** — they keep the figure they name, because
+  the count and the roster are separate questions and a card that vanished would
+  take a setting off screen with it.
+- **A search over the twenty-three.** Type part of a name; a word from the middle
+  works, and so does a name off by a letter — "vanaka" finds Vannaka and "duradal"
+  finds Duradel. Exact names come first, then names that start with what you typed,
+  then names that contain it, then the near misses.
+- **Add and remove that behave like a list.** The dashed card at the bottom adds a
+  follower. The **×** on a card takes that one out and moves everybody behind it up
+  a slot — which is what removing the third of five means and what five dropdowns
+  cannot do in one gesture. The last follower has no **×** at all, because a roster
+  of nobody is the plugin's own on/off switch in the plugin list.
+- **The typed NPC id, as a card.** Open slot 1's picker and it is at the top, with
+  the three things a bare number box has nowhere to say: that an id which cannot
+  walk is refused, that the figure below is what you get when it is, and that
+  emptying the box gives the dropdown back. It shows as **NPC 4931** rather than as
+  the NPC's name because resolving a name needs the game client, and the panel is
+  drawn on a thread that is not allowed to ask it.
+- **Quick settings.** Followers, formation and follow distance, behind a heading
+  that folds. Deliberately three and not fifteen — everything else is set once and
+  left, and a panel that duplicated the settings screen would be a second settings
+  screen with less room.
+
+**The settings screen stays the source of truth.** Every control on the panel
+writes an ordinary setting through RuneLite's own profile mechanism, so a change
+made in one shows up in the other, a profile switch is picked up by both, and
+nothing here is stored anywhere else.
 
 ### Custom NPC ids
 
@@ -131,7 +179,12 @@ build — an NPC with no models of its own. Clear the box.
 
 **One id, first slot only.** Five numbered boxes would double the roster section
 to describe something the four other dropdowns already do; mixing one typed id
-with presets is the case that was asked for.
+with presets is the case that was asked for. The side panel offers it in the first
+slot's picker for the same reason, and nowhere else.
+
+**Picking a preset for slot 1 in the panel clears a typed id**, because the id
+overrides that dropdown — without it the card would change, the setting would
+change, and the figure on screen would not.
 
 ### About the lines
 
@@ -207,6 +260,14 @@ plugin live on the Plugin Hub.
 - **Its frame cost hasn't been measured.** With one mostly-moving figure there is
   nothing to compare against `../lively-cities`' numbers, which describe a
   mostly-*idle* crowd instead.
+- **The panel cannot tell you what a typed NPC id is called.** Turning 4931 into a
+  name goes through the game client, and the client throws when it is read from any
+  thread but its own — which is not the thread a Swing panel is drawn on. The card
+  says "NPC 4931", which is true, rather than a name it would have to fetch and
+  then flicker in.
+- **The panel shows no preview of a figure**, only its name. Drawing a model into a
+  side panel means rendering one outside the game's own scene, which is a different
+  piece of work from anything this plugin does now.
 
 ## Found a bug?
 
@@ -220,7 +281,7 @@ holding a pose at the time. If it's a crash or a figure that never appears,
 ## Development
 
 ```bash
-./gradlew build     # compile and run the 460 tests
+./gradlew build     # compile and run the 539 tests
 ./gradlew test      # tests only, every name printed
 ./gradlew run       # launch a dev client with the plugin loaded
 ```
@@ -240,17 +301,26 @@ instructions in the same change.
 
 Every guard here is proven by deliberately breaking the thing it claims to catch
 and confirming the test goes red first, with the mutation shown to have landed
-rather than assumed. Seven passes so far — 51, 117, 26, 52, 31, 64 and most
-recently 80 mutations — have turned up twenty real gaps, all covered now,
-including a square test fixture whose geometry had been hiding six axis-mix-up
-bugs, and a test that took its expected value from the very constant it was
-checking, so the cap it was named for could be raised to 99 without it going red.
-The newest pass found five of its nine gaps in the same shape: **one rule written
-twice**, in two places that each answered for the other, so that neither copy
-could be broken on its own. Every one of those was collapsed to a single
-falsifiable copy rather than left as coverage that was not there. Two survivors
-remain that no test can catch, both written up as equivalent mutants where they
-live. The case-by-case detail sits in the test source beside each guard.
+rather than assumed. Eight passes so far — 51, 117, 26, 52, 31, 64, 80 and most
+recently 12 — have turned up twenty-two real gaps, all covered now, including a
+square test fixture whose geometry had been hiding six axis-mix-up bugs, and a
+test that took its expected value from the very constant it was checking, so the
+cap it was named for could be raised to 99 without it going red. The seventh pass
+found five of its nine gaps in the same shape: **one rule written twice**, in two
+places that each answered for the other, so that neither copy could be broken on
+its own. Every one of those was collapsed to a single falsifiable copy rather than
+left as coverage that was not there.
+
+The eighth pass covered the side panel and found the same shape again, twice:
+deleting the search's ranking outright left **both** tests named for that ranking
+green, because each of their queries matched exactly one figure and so had no order
+to get wrong. They are written now against the queries where the ranking is the
+only thing that can produce the answer — "kn" for a prefix that beats an earlier
+substring, "dura" for a real match that beats an earlier near miss — and against a
+whole result list rather than its first row, which is what pins the tie-break
+nothing else would have noticed breaking. Two survivors remain that no test can
+catch, both written up as equivalent mutants where they live. The case-by-case
+detail sits in the test source beside each guard.
 
 ### Wanted from a real client
 
@@ -278,6 +348,19 @@ at in the code — each is stated as an open question exactly where it lives:
 8. **What does an arbitrary NPC actually look like following you?** Non-human
    bodies render at human scale on a one-tile footprint, and their animations sit
    on whatever skeleton the cache gives them. Nothing here can judge either.
+9. **Does the side panel look right in the sidebar?** Every colour is
+   `ColorScheme`'s and every font is `FontManager`'s, and both are exercised
+   headless — which proves they were asked for and proves nothing about how five
+   cards and a folded section read at 225 pixels wide, or whether the dashed add
+   card is legible against RuneLite's own theme. `EntourageRosterPanel` is the one
+   place to change if not.
+10. **Does the panel's own icon read at toolbar size?** It is three figures in a
+    wedge, drawn at 24×24 in the client's brand orange. It has been eyeballed at
+    ten times that and nowhere else.
+11. **Does a change made in RuneLite's settings screen redraw an open panel?** The
+    wiring is asserted — a `ConfigChanged` in this plugin's group refreshes and
+    somebody else's does not — but the event only really arrives with a client
+    running.
 
 ## License
 
