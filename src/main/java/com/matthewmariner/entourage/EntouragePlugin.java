@@ -2,6 +2,7 @@ package com.matthewmariner.entourage;
 
 import com.google.inject.Provides;
 import javax.inject.Inject;
+import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.Constants;
@@ -374,10 +375,17 @@ public class EntouragePlugin extends Plugin
 	 * second one built on the way back in would leave the first behind — a plugin disabled
 	 * and re-enabled five times would leave five buttons in the toolbar, four of them dead.
 	 *
+	 * <p>{@code @Singleton} is what makes "built once" structural rather than a property of
+	 * this method happening to be asked once. Without it a second injection point added later
+	 * would run this again, build a second button around a second panel, and leave the first
+	 * one in the toolbar forever — the exact leak the paragraph above is about, arriving by a
+	 * different door.
+	 *
 	 * <p>The priority puts it below RuneLite's own panels rather than above them; this is a
 	 * cosmetic plugin and it should not outrank the config screen.
 	 */
 	@Provides
+	@Singleton
 	SidePanel provideSidePanel(ClientToolbar clientToolbar, EntourageRosterPanel panel)
 	{
 		final NavigationButton button = NavigationButton.builder()
