@@ -52,10 +52,16 @@ final class FakeConfig implements EntourageConfig, ConfigWriter
 	private EntourageFigure figure4 = EntourageConfig.super.figure4();
 	private EntourageFigure figure5 = EntourageConfig.super.figure5();
 	private int customNpcId = EntourageConfig.super.customNpcId();
+	private int customNpcId2 = EntourageConfig.super.customNpcId2();
+	private int customNpcId3 = EntourageConfig.super.customNpcId3();
+	private int customNpcId4 = EntourageConfig.super.customNpcId4();
+	private int customNpcId5 = EntourageConfig.super.customNpcId5();
+	private String favouriteNpcIds = EntourageConfig.super.favouriteNpcIds();
 	private int followDistance = EntourageConfig.super.followDistance();
 	private EntourageFormation formation = EntourageConfig.super.formation();
 	private FollowerFacing facing = EntourageConfig.super.facing();
 	private boolean canRun = EntourageConfig.super.canRun();
+	private boolean stayPut = EntourageConfig.super.stayPut();
 	private int recallDistance = EntourageConfig.super.recallDistance();
 	private EntouragePose idlePose = EntourageConfig.super.idlePose();
 	private boolean hideInInstances = EntourageConfig.super.hideInInstances();
@@ -116,6 +122,34 @@ final class FakeConfig implements EntourageConfig, ConfigWriter
 				customNpcId = value == null
 					? EntourageConfig.super.customNpcId() : Integer.parseInt(value);
 				break;
+			case EntourageConfig.KEY_CUSTOM_NPC_ID_2:
+				customNpcId2 = value == null
+					? EntourageConfig.super.customNpcId2() : Integer.parseInt(value);
+				break;
+			case EntourageConfig.KEY_CUSTOM_NPC_ID_3:
+				customNpcId3 = value == null
+					? EntourageConfig.super.customNpcId3() : Integer.parseInt(value);
+				break;
+			case EntourageConfig.KEY_CUSTOM_NPC_ID_4:
+				customNpcId4 = value == null
+					? EntourageConfig.super.customNpcId4() : Integer.parseInt(value);
+				break;
+			case EntourageConfig.KEY_CUSTOM_NPC_ID_5:
+				customNpcId5 = value == null
+					? EntourageConfig.super.customNpcId5() : Integer.parseInt(value);
+				break;
+			case EntourageConfig.KEY_FAVOURITE_NPC_IDS:
+				// Stored exactly as written, including a shape Favourites.format would never
+				// produce: this fixture is the profile, and the profile is where a
+				// hand-edited value comes from. Coercing here would hide the very thing
+				// Favourites.parse exists to survive.
+				favouriteNpcIds = value == null
+					? EntourageConfig.super.favouriteNpcIds() : value;
+				break;
+			case EntourageConfig.KEY_STAY_PUT:
+				stayPut = value == null
+					? EntourageConfig.super.stayPut() : Boolean.parseBoolean(value);
+				break;
 			case EntourageConfig.KEY_FOLLOW_DISTANCE:
 				followDistance = value == null
 					? EntourageConfig.super.followDistance() : Integer.parseInt(value);
@@ -157,10 +191,54 @@ final class FakeConfig implements EntourageConfig, ConfigWriter
 		return this;
 	}
 
-	/** @param customNpcId the id typed into the box, or zero to use the dropdown */
+	/** @param customNpcId the id typed into the first slot's box, or zero to use the dropdown */
 	FakeConfig setCustomNpcId(int customNpcId)
 	{
-		this.customNpcId = customNpcId;
+		return setCustomNpcIdAt(0, customNpcId);
+	}
+
+	/**
+	 * One slot's typed id, 0-based.
+	 *
+	 * @param npcId the id typed into that slot's box, or zero to use the dropdown. Not
+	 *              clamped and not refused — {@link FollowerBody#custom} is what floors a
+	 *              negative, and a fixture that refused one would make that floor untestable.
+	 */
+	FakeConfig setCustomNpcIdAt(int index, int npcId)
+	{
+		switch (index)
+		{
+			case 1:
+				this.customNpcId2 = npcId;
+				break;
+			case 2:
+				this.customNpcId3 = npcId;
+				break;
+			case 3:
+				this.customNpcId4 = npcId;
+				break;
+			case 4:
+				this.customNpcId5 = npcId;
+				break;
+			default:
+				this.customNpcId = npcId;
+				break;
+		}
+		return this;
+	}
+
+	/**
+	 * The favourites, as the profile holds them.
+	 *
+	 * @param favouriteNpcIds the raw stored string, <b>including a malformed one</b>. That is
+	 *                        the point of taking a string rather than a list: everything
+	 *                        {@link Favourites#parse} promises about a blank entry, a
+	 *                        negative, a name somebody pasted or a trailing comma is only
+	 *                        checkable if a test can put one here.
+	 */
+	FakeConfig setFavouriteNpcIds(String favouriteNpcIds)
+	{
+		this.favouriteNpcIds = favouriteNpcIds;
 		return this;
 	}
 
@@ -227,6 +305,13 @@ final class FakeConfig implements EntourageConfig, ConfigWriter
 	FakeConfig setCanRun(boolean canRun)
 	{
 		this.canRun = canRun;
+		return this;
+	}
+
+	/** @param stayPut true to park the entourage where it stands instead of following */
+	FakeConfig setStayPut(boolean stayPut)
+	{
+		this.stayPut = stayPut;
 		return this;
 	}
 
@@ -339,6 +424,36 @@ final class FakeConfig implements EntourageConfig, ConfigWriter
 	}
 
 	@Override
+	public int customNpcId2()
+	{
+		return customNpcId2;
+	}
+
+	@Override
+	public int customNpcId3()
+	{
+		return customNpcId3;
+	}
+
+	@Override
+	public int customNpcId4()
+	{
+		return customNpcId4;
+	}
+
+	@Override
+	public int customNpcId5()
+	{
+		return customNpcId5;
+	}
+
+	@Override
+	public String favouriteNpcIds()
+	{
+		return favouriteNpcIds;
+	}
+
+	@Override
 	public int followDistance()
 	{
 		return followDistance;
@@ -354,6 +469,12 @@ final class FakeConfig implements EntourageConfig, ConfigWriter
 	public boolean canRun()
 	{
 		return canRun;
+	}
+
+	@Override
+	public boolean stayPut()
+	{
+		return stayPut;
 	}
 
 	@Override

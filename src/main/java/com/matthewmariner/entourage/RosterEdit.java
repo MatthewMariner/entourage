@@ -1,5 +1,7 @@
 package com.matthewmariner.entourage;
 
+import java.util.List;
+
 /**
  * Every change {@link EntourageRosterPanel} can make, as writes into the user's profile.
  *
@@ -53,6 +55,22 @@ final class RosterEdit
 		EntourageConfig.KEY_FIGURE_5,
 	};
 
+	/**
+	 * The profile key behind each slot's typed NPC id, 0-based.
+	 *
+	 * <p>Slot 0's key is {@code customNpcId} and not {@code customNpcId1}, for exactly the
+	 * reason slot 0's figure key is {@code figure} and not {@code figure1}: it is the name
+	 * that setting has had since it was the only one, and it is sitting in the profile of
+	 * everybody who has ever typed an id. See {@link EntourageConfig#KEY_CUSTOM_NPC_ID}.
+	 */
+	private static final String[] CUSTOM_NPC_ID_KEYS = {
+		EntourageConfig.KEY_CUSTOM_NPC_ID,
+		EntourageConfig.KEY_CUSTOM_NPC_ID_2,
+		EntourageConfig.KEY_CUSTOM_NPC_ID_3,
+		EntourageConfig.KEY_CUSTOM_NPC_ID_4,
+		EntourageConfig.KEY_CUSTOM_NPC_ID_5,
+	};
+
 	private RosterEdit()
 	{
 	}
@@ -77,13 +95,33 @@ final class RosterEdit
 	}
 
 	/**
+	 * @param index which slot, 0-based
+	 * @return the profile key that slot's typed NPC id lives under
+	 * @throws IllegalArgumentException for an index outside 0..{@link RosterView#SLOTS}-1,
+	 * for the reason {@link #figureKey} throws
+	 */
+	static String customNpcIdKey(int index)
+	{
+		if (index < 0 || index >= CUSTOM_NPC_ID_KEYS.length)
+		{
+			throw new IllegalArgumentException("no such roster slot: " + index);
+		}
+
+		return CUSTOM_NPC_ID_KEYS[index];
+	}
+
+	/**
 	 * Puts a figure in a slot.
 	 *
-	 * <p><b>Assigning to the first slot clears a typed NPC id, and only then.</b> The typed
-	 * id replaces whatever "Figure 1" says, so picking a preset for slot 1 while an id is in
-	 * force would change the dropdown and change nothing on screen — the control would look
-	 * broken while working exactly as documented. Choosing a figure for that slot is a
-	 * statement about who stands there, so the id that was overriding it goes.
+	 * <p><b>Assigning to a slot clears that slot's typed NPC id.</b> The typed id replaces
+	 * whatever that slot's dropdown says, so picking a preset while an id is in force would
+	 * change the dropdown and change nothing on screen — the control would look broken while
+	 * working exactly as documented. Choosing a figure for a slot is a statement about who
+	 * stands there, so the id that was overriding it goes.
+	 *
+	 * <p>This used to read {@code index == 0 && view.isCustom()}, because only the first slot
+	 * could wear an id. The condition is now the slot's own, which is the same rule with the
+	 * special case taken out of it.
 	 *
 	 * @param view  the roster as the panel drew it, for whether an id is in force
 	 * @param index which slot, 0-based
@@ -92,9 +130,9 @@ final class RosterEdit
 	{
 		writer.write(figureKey(index), figure.name());
 
-		if (index == 0 && view.isCustom())
+		if (view.getSlot(index).isCustom())
 		{
-			clearCustomNpcId(writer);
+			clearCustomNpcId(writer, index);
 		}
 	}
 
@@ -107,9 +145,15 @@ final class RosterEdit
 	 * Both are no-ops rather than throws: the panel does not draw the action in either case,
 	 * and a stale click is not worth an exception on the event dispatch thread.
 	 *
-	 * <p><b>Removing the first slot also clears a typed id.</b> The id belongs to slot 0
-	 * rather than to a figure, so leaving it would move it onto whoever walked up into that
-	 * slot — the removal would visibly not have removed the thing that was there.
+	 * <p><b>A slot's typed id moves up with its figure, and that is what makes this a list
+	 * removal rather than a figure removal.</b> A slot wears a body, and a body is a
+	 * dropdown figure plus — sometimes — an id typed over it; shifting one half without the
+	 * other would take the third follower out and leave the fourth wearing the third's
+	 * number. When the typed id existed only in slot 0 this method could not express that,
+	 * and instead cleared the id outright on a removal of slot 0 for a related reason: the id
+	 * belonged to the slot rather than to a figure, so leaving it would have moved it onto
+	 * whoever walked up. The shift below is the general version of that rule, and it needs no
+	 * special case for the first slot.
 	 *
 	 * @param view  the roster as the panel drew it
 	 * @param index which slot, 0-based
@@ -122,23 +166,35 @@ final class RosterEdit
 			return;
 		}
 
+		// Known and accepted: this is up to eleven separate ConfigManager writes — two per
+		// shifted slot plus the tail unset and the count — from the event dispatch thread,
+		// while EntourageScene reads the whole roster once per 600ms game tick on the client
+		// thread. A tick landing between two of these writes sees an intermediate roster that
+		// was never the user's intent — e.g. [B,B,C,D] after only the first slot has shifted
+		// — which is a full teardown and rebuild of every RuneLiteObject against a shape that
+		// is about to change again. Batching these into one write was considered and rejected:
+		// ConfigManager gives this plugin no transaction to batch them into, and building one
+		// is a bigger, riskier change than is wise this close to submission. The window is
+		// bounded rather than left to compound, though — the very next tick reads the fully
+		// settled roster this method leaves behind and rebuilds again, correctly, so the
+		// visible cost is a rebuild flicker rather than a lasting wrong state.
 		for (int slot = index; slot < followers - 1; slot++)
 		{
-			writer.write(figureKey(slot), view.getSlot(slot + 1).getFigure().name());
+			RosterView.Slot from = view.getSlot(slot + 1);
+			writer.write(figureKey(slot), from.getFigure().name());
+			writeCustomNpcId(writer, slot, from.getCustomNpcId());
 		}
 
 		// The slot that fell off the end is unset rather than left holding a copy of its
 		// neighbour: an inactive card showing the same figure as the active one above it
 		// reads as the removal having half worked, and a key left in the profile is a user
 		// override forever. Unsetting puts the shipped default back, which is what a slot
-		// nobody has ever touched shows.
+		// nobody has ever touched shows. Both halves of the body, for the same reason —
+		// a stale id left on the tail slot is a number that comes back the next time the
+		// count is raised.
 		writer.write(figureKey(followers - 1), null);
+		clearCustomNpcId(writer, followers - 1);
 		writer.write(EntourageConfig.KEY_FOLLOWERS, Integer.toString(followers - 1));
-
-		if (index == 0 && view.isCustom())
-		{
-			clearCustomNpcId(writer);
-		}
 	}
 
 	/**
@@ -172,29 +228,117 @@ final class RosterEdit
 	}
 
 	/**
-	 * Puts a typed NPC id in the first slot.
+	 * Puts a typed NPC id in a slot.
 	 *
 	 * <p>Anything at or below {@link FollowerBody#NO_CUSTOM_NPC} clears it instead of
 	 * writing a zero, because those two are not the same profile: a stored zero is a user
 	 * override that happens to equal the default and shows up as one in the config screen
 	 * forever, while an absent key is the honest "there is no typed id here". Callers do not
 	 * have to test the number first.
+	 *
+	 * @param index which slot, 0-based
 	 */
-	static void setCustomNpcId(ConfigWriter writer, int npcId)
+	static void setCustomNpcId(ConfigWriter writer, int index, int npcId)
+	{
+		writeCustomNpcId(writer, index, npcId);
+	}
+
+	/**
+	 * The write itself, shared with {@link #remove}'s shift.
+	 *
+	 * <p>Separate from the public method only so that the shift cannot drift from what a
+	 * user typing into the box does: a removal that wrote {@code "0"} where the box writes
+	 * an unset would leave a slot with an explicit zero override, which the config screen
+	 * shows forever and which is exactly the state this method exists to avoid.
+	 */
+	private static void writeCustomNpcId(ConfigWriter writer, int index, int npcId)
 	{
 		if (npcId <= FollowerBody.NO_CUSTOM_NPC)
 		{
-			clearCustomNpcId(writer);
+			clearCustomNpcId(writer, index);
 			return;
 		}
 
-		writer.write(EntourageConfig.KEY_CUSTOM_NPC_ID, Integer.toString(npcId));
+		writer.write(customNpcIdKey(index), Integer.toString(npcId));
 	}
 
-	/** Gives the first slot its dropdown figure back. */
-	static void clearCustomNpcId(ConfigWriter writer)
+	/**
+	 * Gives one slot its dropdown figure back.
+	 *
+	 * @param index which slot, 0-based
+	 */
+	static void clearCustomNpcId(ConfigWriter writer, int index)
 	{
-		writer.write(EntourageConfig.KEY_CUSTOM_NPC_ID, null);
+		writer.write(customNpcIdKey(index), null);
+	}
+
+	/**
+	 * Stars an NPC id, or moves it back to the front if it is already starred.
+	 *
+	 * <p>The whole list is rewritten rather than appended to, because the profile holds one
+	 * string: there is no "add" on a config value, only a new value for the key. Read,
+	 * transform, write — and the read comes off the {@link RosterView} the panel was drawn
+	 * from, so what is starred is what the user was looking at.
+	 *
+	 * @param view  the roster as the panel drew it, for the list as it stands
+	 * @param npcId the id to star. Anything at or below {@link FollowerBody#NO_CUSTOM_NPC}
+	 *              writes nothing at all — see {@link Favourites#with} — rather than writing
+	 *              the list back unchanged, because a write nothing changed is a
+	 *              {@code ConfigChanged} event and a panel redraw for no reason.
+	 */
+	static void favourite(ConfigWriter writer, RosterView view, int npcId)
+	{
+		writeFavourites(writer, view, Favourites.with(view.getFavourites(), npcId));
+	}
+
+	/**
+	 * Un-stars an NPC id.
+	 *
+	 * @param npcId the id to drop. One that is not on the list writes nothing, for the reason
+	 *              {@link #favourite} gives: the panel draws from a snapshot and a stale click
+	 *              should cost nothing rather than causing a redraw.
+	 */
+	static void unfavourite(ConfigWriter writer, RosterView view, int npcId)
+	{
+		writeFavourites(writer, view, Favourites.without(view.getFavourites(), npcId));
+	}
+
+	/**
+	 * Writes the favourites list, unless it is the list that is already there.
+	 *
+	 * <p><b>The no-op check is not an optimisation.</b> Every write here goes to
+	 * {@code ConfigManager}, which posts a {@code ConfigChanged} the plugin subscribes to in
+	 * order to redraw the panel — so a write that changed nothing is a redraw that changed
+	 * nothing, on the event dispatch thread, from inside a mouse listener that is already
+	 * about to redraw. Comparing the two lists is cheaper than the round trip and makes
+	 * "star an id that is already at the front" cost exactly nothing.
+	 */
+	private static void writeFavourites(ConfigWriter writer, RosterView view, List<Integer> next)
+	{
+		if (next.equals(view.getFavourites()))
+		{
+			return;
+		}
+
+		// The empty list is written as an unset rather than as an empty string, for the
+		// reason a zero id is: "the user has no favourites" and "the user has explicitly
+		// chosen to have none" are the same state, and only one of them is honest about
+		// never having been set.
+		writer.write(EntourageConfig.KEY_FAVOURITE_NPC_IDS,
+			next.isEmpty() ? null : Favourites.format(next));
+	}
+
+	/**
+	 * Parks the entourage where it stands, or sets it walking again.
+	 *
+	 * <p>Written as a boolean string, which is what {@code ConfigManager} stores for a
+	 * boolean item and what its proxy parses back. Both values are written rather than the
+	 * "on" one being an unset: this is a switch somebody flips back and forth mid-fight, and
+	 * an off state that means "no key" would make the two directions asymmetric for no gain.
+	 */
+	static void setStayPut(ConfigWriter writer, boolean stayPut)
+	{
+		writer.write(EntourageConfig.KEY_STAY_PUT, Boolean.toString(stayPut));
 	}
 
 	/** Sets the shape they stand in. */

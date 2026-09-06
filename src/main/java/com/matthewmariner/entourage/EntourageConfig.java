@@ -54,13 +54,19 @@ import net.runelite.client.config.Units;
  *       <i>is</i> a cache decoder in the plugin now ({@link NpcRecord}), and it is
  *       deliberately no help here: it reads four animation ids out of one NPC record and
  *       knows nothing about items.</li>
- *   <li><b>Five custom NPC ids.</b> {@link #customNpcId()} replaces the first slot and
- *       only the first, because the first is the one that always exists — the roster
- *       starts at one — and because five more numbered boxes would double the roster
- *       section to describe something four of the dropdowns already do. Mixing one typed
- *       id with four presets is the case that was asked for; five typed ids is a second
- *       feature, and it can be five keys beside this one whenever anybody wants it.</li>
+ *   <li><b>A favourites screen.</b> {@link #favouriteNpcIds()} is a hidden item rather
+ *       than a visible one, because nobody keeps a favourite by typing a comma-separated
+ *       list of integers into a text box. The star on a card is the whole interface; this
+ *       key is only where it is written down. A visible item would be a second and worse
+ *       way to edit the same state.</li>
  * </ul>
+ *
+ * <p><b>What used to be deliberately absent and is not any more.</b> This list carried a
+ * bullet saying there was one custom NPC id and not five — that the first slot is the one
+ * which always exists, and that five numbered boxes would double the roster section to
+ * describe what four dropdowns already do. The owner asked for five, so there are five, and
+ * the reasoning that survives it is the naming: see {@link #KEY_CUSTOM_NPC_ID} on why the
+ * first one is not called {@code customNpcId1}.
  */
 @ConfigGroup(EntourageConfig.GROUP)
 public interface EntourageConfig extends Config
@@ -115,11 +121,42 @@ public interface EntourageConfig extends Config
 	/** @see #figure5() */
 	String KEY_FIGURE_5 = "figure5";
 
-	/** @see #customNpcId() */
+	/**
+	 * @see #customNpcId()
+	 *
+	 * <p><b>"customNpcId" and not "customNpcId1", and this asymmetry is deliberate.</b>
+	 * When the typed id only applied to the first slot this was the whole feature, so it
+	 * got an unnumbered name — and it is now in profiles belonging to everybody who ever
+	 * typed one. Renaming it to sit tidily beside its four new neighbours would silently
+	 * reset exactly those people's setting, which is the one failure this file's opening
+	 * paragraph exists to prevent. So the four new keys are numbered from <i>two</i> and
+	 * this one keeps the name it has always had. It reads as an oversight and it is the
+	 * opposite of one; {@link #KEY_FIGURE} carries the same scar for the same reason, and
+	 * {@code EntourageConfigTest} pins both so a tidying pass goes red rather than
+	 * shipping.
+	 */
 	String KEY_CUSTOM_NPC_ID = "customNpcId";
+
+	/** @see #customNpcId2() */
+	String KEY_CUSTOM_NPC_ID_2 = "customNpcId2";
+
+	/** @see #customNpcId3() */
+	String KEY_CUSTOM_NPC_ID_3 = "customNpcId3";
+
+	/** @see #customNpcId4() */
+	String KEY_CUSTOM_NPC_ID_4 = "customNpcId4";
+
+	/** @see #customNpcId5() */
+	String KEY_CUSTOM_NPC_ID_5 = "customNpcId5";
+
+	/** @see #favouriteNpcIds() */
+	String KEY_FAVOURITE_NPC_IDS = "favouriteNpcIds";
 
 	/** @see #followDistance() */
 	String KEY_FOLLOW_DISTANCE = "followDistance";
+
+	/** @see #stayPut() */
+	String KEY_STAY_PUT = "stayPut";
 
 	/**
 	 * @see #formation()
@@ -218,56 +255,8 @@ public interface EntourageConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = KEY_FIGURE_2,
-		name = "Figure 2",
-		description = "Whose body the second follower wears. Used when \"Followers\" is at least two.",
-		position = 3,
-		section = rosterSection
-	)
-	default EntourageFigure figure2()
-	{
-		return EntourageFigure.defaultAt(1);
-	}
-
-	@ConfigItem(
-		keyName = KEY_FIGURE_3,
-		name = "Figure 3",
-		description = "Whose body the third follower wears. Used when \"Followers\" is at least three.",
-		position = 4,
-		section = rosterSection
-	)
-	default EntourageFigure figure3()
-	{
-		return EntourageFigure.defaultAt(2);
-	}
-
-	@ConfigItem(
-		keyName = KEY_FIGURE_4,
-		name = "Figure 4",
-		description = "Whose body the fourth follower wears. Used when \"Followers\" is at least four.",
-		position = 5,
-		section = rosterSection
-	)
-	default EntourageFigure figure4()
-	{
-		return EntourageFigure.defaultAt(3);
-	}
-
-	@ConfigItem(
-		keyName = KEY_FIGURE_5,
-		name = "Figure 5",
-		description = "Whose body the fifth follower wears. Used when \"Followers\" is five.",
-		position = 6,
-		section = rosterSection
-	)
-	default EntourageFigure figure5()
-	{
-		return EntourageFigure.defaultAt(4);
-	}
-
-	@ConfigItem(
 		keyName = KEY_CUSTOM_NPC_ID,
-		name = "Custom NPC id",
+		name = "Custom NPC id 1",
 		description = "Puts any NPC in the first slot instead of whatever \"Figure 1\" says — type its "
 			+ "id and leave the rest alone. Zero means \"use the dropdown\", which is where it starts. "
 			+ "Unlike the presets, an arbitrary NPC has to be checked before it can be used: the "
@@ -275,7 +264,7 @@ public interface EntourageConfig extends Config
 			+ "it has none, or walks with the same animation it stands with, the id is refused and the "
 			+ "dropdown figure comes back. Non-human bodies are allowed and may look odd. Changing "
 			+ "this rebuilds the entourage on the next game tick.",
-		position = 7,
+		position = 3,
 		section = rosterSection
 	)
 	@Range(min = FollowerBody.NO_CUSTOM_NPC)
@@ -284,7 +273,183 @@ public interface EntourageConfig extends Config
 		return FollowerBody.NO_CUSTOM_NPC;
 	}
 
+	@ConfigItem(
+		keyName = KEY_FIGURE_2,
+		name = "Figure 2",
+		description = "Whose body the second follower wears. Used when \"Followers\" is at least two.",
+		position = 4,
+		section = rosterSection
+	)
+	default EntourageFigure figure2()
+	{
+		return EntourageFigure.defaultAt(1);
+	}
+
+	@ConfigItem(
+		keyName = KEY_CUSTOM_NPC_ID_2,
+		name = "Custom NPC id 2",
+		description = "Puts any NPC in the second slot instead of whatever \"Figure 2\" says. Zero "
+			+ "means \"use the dropdown\". Everything said about \"Custom NPC id 1\" applies here: an "
+			+ "id that cannot stand and walk is refused and the dropdown figure comes back.",
+		position = 5,
+		section = rosterSection
+	)
+	@Range(min = FollowerBody.NO_CUSTOM_NPC)
+	default int customNpcId2()
+	{
+		return FollowerBody.NO_CUSTOM_NPC;
+	}
+
+	@ConfigItem(
+		keyName = KEY_FIGURE_3,
+		name = "Figure 3",
+		description = "Whose body the third follower wears. Used when \"Followers\" is at least three.",
+		position = 6,
+		section = rosterSection
+	)
+	default EntourageFigure figure3()
+	{
+		return EntourageFigure.defaultAt(2);
+	}
+
+	@ConfigItem(
+		keyName = KEY_CUSTOM_NPC_ID_3,
+		name = "Custom NPC id 3",
+		description = "Puts any NPC in the third slot instead of whatever \"Figure 3\" says. Zero "
+			+ "means \"use the dropdown\". Everything said about \"Custom NPC id 1\" applies here: an "
+			+ "id that cannot stand and walk is refused and the dropdown figure comes back.",
+		position = 7,
+		section = rosterSection
+	)
+	@Range(min = FollowerBody.NO_CUSTOM_NPC)
+	default int customNpcId3()
+	{
+		return FollowerBody.NO_CUSTOM_NPC;
+	}
+
+	@ConfigItem(
+		keyName = KEY_FIGURE_4,
+		name = "Figure 4",
+		description = "Whose body the fourth follower wears. Used when \"Followers\" is at least four.",
+		position = 8,
+		section = rosterSection
+	)
+	default EntourageFigure figure4()
+	{
+		return EntourageFigure.defaultAt(3);
+	}
+
+	@ConfigItem(
+		keyName = KEY_CUSTOM_NPC_ID_4,
+		name = "Custom NPC id 4",
+		description = "Puts any NPC in the fourth slot instead of whatever \"Figure 4\" says. Zero "
+			+ "means \"use the dropdown\". Everything said about \"Custom NPC id 1\" applies here: an "
+			+ "id that cannot stand and walk is refused and the dropdown figure comes back.",
+		position = 9,
+		section = rosterSection
+	)
+	@Range(min = FollowerBody.NO_CUSTOM_NPC)
+	default int customNpcId4()
+	{
+		return FollowerBody.NO_CUSTOM_NPC;
+	}
+
+	@ConfigItem(
+		keyName = KEY_FIGURE_5,
+		name = "Figure 5",
+		description = "Whose body the fifth follower wears. Used when \"Followers\" is five.",
+		position = 10,
+		section = rosterSection
+	)
+	default EntourageFigure figure5()
+	{
+		return EntourageFigure.defaultAt(4);
+	}
+
+	@ConfigItem(
+		keyName = KEY_CUSTOM_NPC_ID_5,
+		name = "Custom NPC id 5",
+		description = "Puts any NPC in the fifth slot instead of whatever \"Figure 5\" says. Zero "
+			+ "means \"use the dropdown\". Everything said about \"Custom NPC id 1\" applies here: an "
+			+ "id that cannot stand and walk is refused and the dropdown figure comes back.",
+		position = 11,
+		section = rosterSection
+	)
+	@Range(min = FollowerBody.NO_CUSTOM_NPC)
+	default int customNpcId5()
+	{
+		return FollowerBody.NO_CUSTOM_NPC;
+	}
+
+	/**
+	 * The ids kept on the favourites list, as the profile stores them.
+	 *
+	 * <p><b>Hidden, so it survives a restart without appearing on the settings screen.</b>
+	 * It is not a dial: nobody sets their favourites by typing a comma-separated list into a
+	 * text box, they press a star on a card. A visible item would be a second, worse way to
+	 * edit the same state, and an invitation to hand-edit a value every reader of it then has
+	 * to defend against. {@code hidden = true} keeps RuneLite's own profile mechanism — which
+	 * is the whole persistence story here, and the reason this plugin writes no files.
+	 *
+	 * <p><b>Integers, comma-separated, and that shape is the point.</b> The obvious
+	 * alternative is a list of names, and it is broken by construction: a delimiter has to be
+	 * a character the values cannot contain, and NPC names contain commas. This same config
+	 * already documents that failure at {@link #dialogueLines()} — a custom line cannot hold a
+	 * comma, and there is deliberately no escape. An id cannot hold one, so the collision
+	 * cannot happen. The name is resolved from the game's cache when a row is drawn, off the
+	 * same {@code NPCComposition} the rest of the plugin dresses a follower from.
+	 *
+	 * <p>Never read raw — see {@link Favourites#parse}, which is where a blank, a negative, a
+	 * non-integer, a duplicate or a list past the cap stops being this class's problem.
+	 */
+	@ConfigItem(
+		keyName = KEY_FAVOURITE_NPC_IDS,
+		name = "Favourite NPC ids",
+		description = "The NPC ids you have starred, newest first. Set from the side panel.",
+		position = 12,
+		section = rosterSection,
+		hidden = true
+	)
+	default String favouriteNpcIds()
+	{
+		return "";
+	}
+
 	// --- Movement ------------------------------------------------------------
+
+	/**
+	 * Whether the entourage holds the tiles it is standing on instead of following.
+	 *
+	 * <p><b>It suppresses the recall as well as the walk, and that is the feature rather
+	 * than an oversight.</b> {@link #recallDistance()} exists to rescue a follower stranded
+	 * behind a wall by putting it back on the player's tile, and it fires at twelve tiles by
+	 * default. Somebody who parks the group against a wall at God Wars and then walks into
+	 * the boss room is well past twelve tiles from them — so a freeze that left the recall
+	 * running would teleport the whole entourage into the fight, which is the exact opposite
+	 * of what was asked for. See {@link FollowerWalk#tick} for where that is enforced and
+	 * {@code FollowerWalkTest} for the test that stops a future reader "fixing" it.
+	 *
+	 * <p><b>What it does not suppress:</b> the facing, the idle pose and the dialogue. A
+	 * group parked on a wall that still turns to watch you — {@link FollowerFacing#AT_ME} —
+	 * is the effect this was asked for, not a thing to switch off with the walking.
+	 */
+	@ConfigItem(
+		keyName = KEY_STAY_PUT,
+		name = "Stay put",
+		description = "Freezes the entourage on the tiles it is standing on instead of following "
+			+ "you — for parking them along a wall while you fight, and for anywhere a group "
+			+ "underfoot is a nuisance. They still turn to watch you, hold their pose and say "
+			+ "things; they just do not move, and they are not recalled to you however far away "
+			+ "you go. Turn it off and they walk back to you through the ordinary follow, which "
+			+ "means a long way away is a recall. Also in the sidebar panel, which is where you "
+			+ "want it mid-fight.",
+		position = 0,
+		section = movementSection
+	)
+	default boolean stayPut()
+	{
+		return false;
+	}
 
 	@ConfigItem(
 		keyName = KEY_FOLLOW_DISTANCE,

@@ -56,10 +56,16 @@ public class ContrastGuardTest
 
 	private final FakeConfig config = new FakeConfig();
 
+	/**
+	 * Taught one name, because a resolved favourite and an unresolved one are different
+	 * labels on different rows and both have to clear the bar.
+	 */
+	private final FakeNpcNames npcNames = new FakeNpcNames().knows(3598, "Gummy");
+
 	private EntourageRosterPanel panel()
 	{
 		final EntourageRosterPanel[] built = new EntourageRosterPanel[1];
-		onSwing(() -> built[0] = new EntourageRosterPanel(config, config));
+		onSwing(() -> built[0] = new EntourageRosterPanel(config, config, npcNames));
 		return built[0];
 	}
 
@@ -79,13 +85,25 @@ public class ContrastGuardTest
 
 	/**
 	 * The picker, the typed-id card in both its states, the "nothing matches" paragraph,
-	 * the rejected-input notice, and the "in this slot" mark — every label the roster
-	 * screen above does not reach.
+	 * the rejected-input notice, the "in this slot" mark, and the favourites list — both a
+	 * resolved row and an unresolved one, and both the worn and the not-worn foreground —
+	 * every label the roster screen above does not reach.
+	 *
+	 * <p><b>The favourites half of this used to be dead.</b> {@link #npcNames} taught 3598
+	 * its name with a javadoc claiming a resolved and an unresolved favourite were both
+	 * checked, but neither test in this file ever set {@code favouriteNpcIds} or a custom
+	 * id, so {@link EntourageRosterPanel#favouriteRow} was never actually drawn — a favourite
+	 * row's foreground could have been set to {@code MEDIUM_GRAY_COLOR} outright and every
+	 * test here would have stayed green. Setting the favourites list and then typing 3598
+	 * into the id box makes both rows real: 90210 stays "not worn" (the ordinary
+	 * {@code TEXT_COLOR} branch), and 3598 becomes "worn" ({@code BRAND_ORANGE}) the moment
+	 * it is the id in the slot.
 	 */
 	@Test
 	public void noLabelInThePickerIsTooCloseToItsBackground()
 	{
-		config.setFigure(EntourageFigure.PIRATE);
+		config.setFigure(EntourageFigure.PIRATE)
+			.setFavouriteNpcIds("3598,90210");
 		EntourageRosterPanel panel = panel();
 
 		press(pressableFor(panel, "Pirate"));
@@ -99,6 +117,9 @@ public class ContrastGuardTest
 		assertReadable(panel);
 
 		typeIntoIdBox(panel, "4931");
+		assertReadable(panel);
+
+		typeIntoIdBox(panel, "3598");
 		assertReadable(panel);
 	}
 

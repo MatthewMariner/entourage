@@ -9,6 +9,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -464,6 +465,397 @@ public class EntourageSceneTest
 		assertNotNull("nothing drives the chatter", said);
 		assertTrue("and it is one of the figure's own lines",
 			FigureLines.of(follower.getFigure()).contains(said));
+	}
+
+	/**
+	 * <b>A parked entourage still talks.</b> "Stay put" suppresses the walking and the
+	 * recall, and nothing else — a group posted up along a wall that has gone silent is not
+	 * what anybody asked for, and the dialogue is close enough to the movement in this class
+	 * that a suppression written one branch too wide would take it with it.
+	 */
+	@Test
+	public void aParkedEntourageStillSaysThings()
+	{
+		config.setStayPut(true);
+		EntourageScene scene = scene();
+		scene.onGameTick();
+		Follower follower = scene.getFollowers().get(0);
+		WorldPoint parkedOn = follower.getWalk().currentTile();
+
+		String said = null;
+		for (int tick = 0; tick < EntourageSettings.DEFAULT_DIALOGUE_INTERVAL_TICKS + 1
+			&& said == null; tick++)
+		{
+			scene.onGameTick();
+			said = follower.getRemarks().text();
+		}
+
+		assertNotNull("a parked follower has nothing to say", said);
+		assertEquals("and it has not moved while saying it",
+			parkedOn, follower.getWalk().currentTile());
+	}
+
+	/**
+	 * <b>Parking is a suppression of the movement, not of the entourage.</b> The figures stay
+	 * registered with the client — the alternative would be a "stay put" that takes them off
+	 * the screen, which is the plugin's own off switch wearing a different name.
+	 */
+	@Test
+	public void aParkedEntourageIsStillOnScreen()
+	{
+		config.setRoster(FIVE).setStayPut(true);
+		EntourageScene scene = scene();
+
+		scene.onGameTick();
+		scene.onGameTick();
+
+		assertEquals(FULL_ROSTER, client.registeredCount());
+	}
+
+	// --- A roster edit must not un-park the entourage ------------------------
+
+	/**
+	 * The tile the player ends up standing on for the rest of every test below: walked
+	 * eight tiles east and left there, matching
+	 * {@link #aFullRosterInAFormationSettlesOnFiveDistinctTilesAndStaysThere}'s own fixture,
+	 * so a follower with no pin to fall back on is unmistakable — it is the only one that
+	 * would ever land here.
+	 */
+	private static final WorldPoint PLAYER_AFTER_WALKING_EAST = STANDING.dx(7);
+
+	/**
+	 * Walks a formation into place, parks it, and hands back each follower's pin — the
+	 * fixture every test below shares, since "get five figures onto five distinct tiles and
+	 * then freeze them there" is the same eight-tiles-east dance
+	 * {@link #aFullRosterInAFormationSettlesOnFiveDistinctTilesAndStaysThere} already proves
+	 * settles on distinct tiles, none of them the player's own.
+	 *
+	 * @return one pin per follower, indexed the way the roster names them
+	 */
+	private WorldPoint[] parkAndCapturePins(EntourageScene scene)
+	{
+		WorldPoint player = STANDING;
+		for (int step = 0; step < 8; step++)
+		{
+			client.setLocalPlayer(FakePlayer.standingOn(view, player));
+			scene.onGameTick();
+			player = player.dx(1);
+		}
+		for (int settle = 0; settle < 10; settle++)
+		{
+			scene.onGameTick();
+		}
+
+		config.setStayPut(true);
+		scene.onGameTick();
+
+		WorldPoint[] pins = new WorldPoint[scene.getFollowers().size()];
+		for (int index = 0; index < pins.length; index++)
+		{
+			pins[index] = scene.getFollowers().get(index).getFrozenTile();
+			assertNotNull("the fixture has to be parked before the real test starts",
+				pins[index]);
+		}
+		return pins;
+	}
+
+	/**
+	 * <b>The bug this whole section exists for.</b> Before the fix, any roster change —
+	 * including one that touches a single slot — rebuilt every follower from scratch, and a
+	 * freshly built follower has no pin, so it re-spawned on the player's own tile: pressing
+	 * one figure dropdown teleported the whole parked group onto you. The fix carries each
+	 * surviving slot's pin across the rebuild, keyed by index.
+	 */
+	@Test
+	public void parkedThenAFigureChangeInOneSlotKeepsEverySurvivingPin()
+	{
+		config.setRoster(FIVE).setFormation(EntourageFormation.HANGOUT);
+		EntourageScene scene = scene();
+		WorldPoint[] pins = parkAndCapturePins(scene);
+
+		config.setFigureAt(2, EntourageFigure.WISE_OLD_MAN);
+		scene.onGameTick();
+
+		assertEquals(FULL_ROSTER, scene.getFollowers().size());
+		for (int index = 0; index < FULL_ROSTER; index++)
+		{
+			Follower follower = scene.getFollowers().get(index);
+			assertEquals("slot " + index + " lost its pin across a one-slot figure change",
+				pins[index], follower.getFrozenTile());
+			assertNotEquals("slot " + index + " was re-parked on the player instead",
+				PLAYER_AFTER_WALKING_EAST, follower.getFrozenTile());
+		}
+	}
+
+	/**
+	 * <b>A removal is a list removal, not a wipe.</b> {@link RosterEdit#remove} moves
+	 * everybody after the removed slot up by one and drops the count — this reproduces
+	 * exactly the bodies list that leaves behind, without going through the panel — so the
+	 * pin has to move the same way: the figure that used to answer to slot 3 keeps its own
+	 * tile after sliding up to slot 2, rather than inheriting slot 2's old tile or losing its
+	 * pin outright.
+	 */
+	@Test
+	public void parkedThenARemovedSlotCarriesTheSurvivorsPinsUpByIndex()
+	{
+		config.setRoster(FIVE).setFormation(EntourageFormation.HANGOUT);
+		EntourageScene scene = scene();
+		WorldPoint[] pins = parkAndCapturePins(scene);
+
+		// Slot 2 removed: everybody after it — old slots 3 and 4 — moves up to 2 and 3.
+		config.setRoster(FIVE[0], FIVE[1], FIVE[3], FIVE[4]);
+		scene.onGameTick();
+
+		assertEquals(4, scene.getFollowers().size());
+		assertEquals("slot 0 was never touched by the removal",
+			pins[0], scene.getFollowers().get(0).getFrozenTile());
+		assertEquals("slot 1 was never touched by the removal",
+			pins[1], scene.getFollowers().get(1).getFrozenTile());
+		assertEquals("the figure that used to be slot 3 kept its own tile at its new slot 2",
+			pins[3], scene.getFollowers().get(2).getFrozenTile());
+		assertEquals("the figure that used to be slot 4 kept its own tile at its new slot 3",
+			pins[4], scene.getFollowers().get(3).getFrozenTile());
+	}
+
+	/**
+	 * <b>An edit whose shape the matcher cannot identify still must not put anybody on the
+	 * player.</b> Two slots removed at once is not one of the three shapes {@code RosterEdit}
+	 * produces — the panel only ever makes one edit per gesture — but the plain RuneLite
+	 * settings screen can land two changes inside one 600ms tick, and the roster is only read
+	 * once per tick, so the matcher sees a shrink whose tail does not line up either way.
+	 *
+	 * <p>The first version of the matcher refused to pin anything it could not vouch for, on
+	 * the reasoning that a wrong tile is worse than no tile. It is the other way round here:
+	 * "no tile" is not "stays where it is", it is "re-parks on the player", which is the whole
+	 * defect. So an index it cannot place keeps whatever was parked at its own slot number —
+	 * a tile inside the same cluster the user parked, rather than the player's feet.
+	 */
+	@Test
+	public void parkedThenAnUnrecognisableEditStillLeavesNobodyOnThePlayer()
+	{
+		config.setRoster(FIVE).setFormation(EntourageFormation.HANGOUT);
+		EntourageScene scene = scene();
+		WorldPoint[] pins = parkAndCapturePins(scene);
+
+		// Slots 1 and 4 both gone in the same tick. Neither "one run removed and the tail
+		// shifted down" nor "the count cut from the end" describes this.
+		config.setRoster(FIVE[0], FIVE[2], FIVE[3]);
+		scene.onGameTick();
+
+		assertEquals(3, scene.getFollowers().size());
+		for (int index = 0; index < 3; index++)
+		{
+			Follower follower = scene.getFollowers().get(index);
+			assertNotNull("slot " + index + " lost its pin and will re-park on the player",
+				follower.getFrozenTile());
+			assertNotEquals("slot " + index + " was re-parked on the player",
+				PLAYER_AFTER_WALKING_EAST, follower.getFrozenTile());
+			assertEquals("slot " + index + " fell back to its own slot number's tile",
+				pins[index], follower.getFrozenTile());
+		}
+	}
+
+	/**
+	 * A slot that did not exist a moment ago was never parked anywhere, so there is nothing
+	 * to hand it — it parks wherever it spawns, the same as the very first tick for a roster
+	 * that has always been this size. Every slot that already existed keeps its own pin.
+	 */
+	@Test
+	public void parkedThenTheRosterGrowingLeavesTheNewSlotWithNoPin()
+	{
+		config.setRoster(FIVE[0], FIVE[1], FIVE[2]).setFormation(EntourageFormation.HANGOUT);
+		EntourageScene scene = scene();
+		WorldPoint[] pins = parkAndCapturePins(scene);
+
+		config.setRoster(FIVE[0], FIVE[1], FIVE[2], FIVE[3]);
+		scene.onGameTick();
+
+		assertEquals(4, scene.getFollowers().size());
+		for (int index = 0; index < pins.length; index++)
+		{
+			assertEquals("slot " + index + " kept its pin through the growth",
+				pins[index], scene.getFollowers().get(index).getFrozenTile());
+		}
+
+		assertEquals("a slot that was never anywhere parks where it spawns, like day one",
+			PLAYER_AFTER_WALKING_EAST, scene.getFollowers().get(3).getWalk().currentTile());
+	}
+
+	/**
+	 * <b>An unparked slot must never cause two new indices to draw the same pin.</b> Before
+	 * this test existed, {@code matchPins}' final fallback loop handed new index {@code i}
+	 * whatever was parked at old index {@code i} unconditionally — even when some other new
+	 * index had already been handed that exact same old pin by the shrink branch above it.
+	 *
+	 * <p>Reproduced here as small as it gets: four slots, Rogue/Hans/Vannaka/Pirate, with
+	 * Vannaka's NPC composition made to never resolve — see {@link FakeClient#withNullNpcComposition}
+	 * — so it never spawns and never records a pin. Park, then remove slot 0. The shrink
+	 * branch maps new 0 to old 1 (Hans) and new 2 to old 3 (Pirate); new 1 (Vannaka's old
+	 * neighbour, now unaccounted for) has nothing of its own to inherit. The old fallback
+	 * looked up "whatever is at old index 1" — Hans, again — and handed his pin to new index
+	 * 1 as well, so new 0 and new 1 drew on top of each other. The fixed fallback tracks
+	 * which old index has already supplied a pin and takes the lowest-numbered one that has
+	 * not — here, Rogue's, which the shrink branch never touched because slot 0 is exactly
+	 * the one the edit removed.
+	 *
+	 * <p>A brute force over 3,386,790 roster shapes found zero violations of "a parked slot
+	 * never loses its pin" against the fixed version — so the fallback is still doing its
+	 * job — and 9,432 duplicate-tile violations against the old one, all requiring at least
+	 * one unparked slot; this is the smallest of the 8,136 reachable through
+	 * {@link RosterEdit#remove}.
+	 */
+	@Test
+	public void anUnparkedSlotNeverCausesTwoNewIndicesToShareAPin()
+	{
+		client.withNullNpcComposition(EntourageFigure.VANNAKA.getNpcId());
+		config.setRoster(EntourageFigure.ROGUE, EntourageFigure.HANS, EntourageFigure.VANNAKA,
+			EntourageFigure.PIRATE).setFormation(EntourageFormation.HANGOUT);
+		EntourageScene scene = scene();
+
+		WorldPoint player = STANDING;
+		for (int step = 0; step < 8; step++)
+		{
+			client.setLocalPlayer(FakePlayer.standingOn(view, player));
+			scene.onGameTick();
+			player = player.dx(1);
+		}
+		for (int settle = 0; settle < 10; settle++)
+		{
+			scene.onGameTick();
+		}
+
+		config.setStayPut(true);
+		scene.onGameTick();
+
+		WorldPoint rogue = scene.getFollowers().get(0).getFrozenTile();
+		WorldPoint hans = scene.getFollowers().get(1).getFrozenTile();
+		WorldPoint pirate = scene.getFollowers().get(3).getFrozenTile();
+		assertNotNull("the fixture has to be parked before the real test starts", rogue);
+		assertNotNull("the fixture has to be parked before the real test starts", hans);
+		assertNotNull("the fixture has to be parked before the real test starts", pirate);
+		assertNull("Vannaka never resolves, so it never spawns and never parks",
+			scene.getFollowers().get(2).getFrozenTile());
+
+		// Slot 0 (Rogue) removed: Hans, Vannaka and Pirate all move up one.
+		config.setRoster(EntourageFigure.HANS, EntourageFigure.VANNAKA, EntourageFigure.PIRATE);
+		scene.onGameTick();
+
+		assertEquals(3, scene.getFollowers().size());
+		WorldPoint newZero = scene.getFollowers().get(0).getFrozenTile();
+		WorldPoint newOne = scene.getFollowers().get(1).getFrozenTile();
+
+		assertEquals("new slot 0 is Hans, who kept his own pin", hans, newZero);
+		assertNotNull("new slot 1 has to get a pin from somewhere rather than none at all",
+			newOne);
+		assertNotEquals("new slot 0 and new slot 1 must never draw on the same tile",
+			newZero, newOne);
+		assertEquals("the only unclaimed pin left is Rogue's — his slot is the one removed",
+			rogue, newOne);
+	}
+
+	/**
+	 * <b>{@link Follower#isFrozenInInstance()} has exactly one reader outside {@link Follower}
+	 * itself</b> — {@link EntourageScene}'s own {@code addPin}, through {@code matchPins} —
+	 * and until now nothing exercised it: every {@code parkedThen…} test above parks in an
+	 * ordinary scene, where the correct answer is always {@code false} anyway. Hard-coding
+	 * {@code new Pin(tile, false)} in {@code addPin}, or making {@code isFrozenInInstance()}
+	 * itself always answer {@code false}, both leave every test above green — the carried
+	 * tile is identical either way, and only the flag beside it is wrong. What that costs:
+	 * {@link Follower#respawnTile} compares the flag against the instance the object is
+	 * ticking in right now, so a follower parked in a raid and handed a false flag looks, to
+	 * that comparison, exactly like one whose pin was recorded outside the raid it never
+	 * left — and re-parks on the player the very next tick, inside the instance it is still
+	 * standing in.
+	 */
+	@Test
+	public void parkedInAnInstanceThenARosterEditKeepsTheInstanceFlagOnTheCarriedPin()
+	{
+		config.setRoster(FIVE).setFormation(EntourageFormation.HANGOUT);
+		view.asInstance();
+		EntourageScene scene = scene();
+		WorldPoint[] pins = parkAndCapturePins(scene);
+
+		config.setFigureAt(2, EntourageFigure.WISE_OLD_MAN);
+		scene.onGameTick();
+
+		assertEquals(FULL_ROSTER, scene.getFollowers().size());
+		for (int index = 0; index < FULL_ROSTER; index++)
+		{
+			Follower follower = scene.getFollowers().get(index);
+			assertEquals("slot " + index + " kept its own pin across the edit",
+				pins[index], follower.getFrozenTile());
+			assertTrue("slot " + index + "'s carried pin forgot it was recorded inside the "
+				+ "instance, so it re-parked on the player on the very next tick",
+				follower.isFrozenInInstance());
+		}
+	}
+
+	/**
+	 * The other half: a pin adopted from a roster edit inside an instance is not exempt from
+	 * the ordinary "leaving an instance re-parks on the player" rule — the flag {@link
+	 * Follower#adoptPin} hands over has to be honoured by {@link Follower#respawnTile} exactly
+	 * as if the follower had recorded it itself.
+	 *
+	 * <p>{@code scene.invalidate(..)} between the two ticks is what a real instance boundary
+	 * actually does — deactivates every follower without touching what any of them have
+	 * parked — so the next tick takes the "just respawned" branch that consults the flag at
+	 * all; without it every follower is still active and {@link Follower#onGameTick} never
+	 * revisits {@link Follower#respawnTile} in the first place.
+	 */
+	@Test
+	public void parkedInAnInstanceThenLeavingItAfterARosterEditStillDropsTheCarriedPin()
+	{
+		config.setRoster(FIVE).setFormation(EntourageFormation.HANGOUT);
+		view.asInstance();
+		EntourageScene scene = scene();
+		parkAndCapturePins(scene);
+
+		config.setFigureAt(2, EntourageFigure.WISE_OLD_MAN);
+		scene.onGameTick();
+		for (Follower follower : scene.getFollowers())
+		{
+			assertTrue("the fixture has to still be parked in the instance before the real "
+				+ "test starts", follower.isFrozenInInstance());
+		}
+
+		scene.invalidate("LOADING");
+
+		FakeWorldView outside = FakeWorldView.around(STANDING);
+		client.setTopLevelWorldView(outside);
+		client.setLocalPlayer(FakePlayer.standingOn(outside, STANDING));
+		scene.onGameTick();
+
+		for (Follower follower : scene.getFollowers())
+		{
+			assertEquals("left the instance, so the carried pin re-parks on the player same "
+				+ "as any other", STANDING, follower.getFrozenTile());
+		}
+	}
+
+	/**
+	 * <b>The carry-across is a no-op with Stay put off.</b> Every follower's own pin is
+	 * already null the moment the setting goes off — see {@code Follower.onGameTick} — so a
+	 * roster edit on top of that has nothing to hand across, and every follower rebuilt out
+	 * of it starts, and stays, unparked.
+	 */
+	@Test
+	public void stayPutOffCarriesNothingAcrossARosterEdit()
+	{
+		config.setRoster(FIVE).setFormation(EntourageFormation.HANGOUT);
+		EntourageScene scene = scene();
+		parkAndCapturePins(scene);
+
+		config.setStayPut(false);
+		scene.onGameTick();
+
+		config.setFigureAt(2, EntourageFigure.WISE_OLD_MAN);
+		scene.onGameTick();
+
+		for (Follower follower : scene.getFollowers())
+		{
+			assertNull("stay put is off, so a roster edit must not adopt an old pin",
+				follower.getFrozenTile());
+		}
 	}
 
 	/**

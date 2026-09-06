@@ -494,11 +494,169 @@ public class EntourageSettingsTest
 			settings.getDialogueDwellTicks());
 		assertTrue(settings.getCustomLines().isEmpty());
 	}
+	// --- Stay put -------------------------------------------------------------
+
+	/**
+	 * <b>Stay put is read straight through, and it is off by default.</b> Nothing clamps a
+	 * boolean; what this pins is that the snapshot the tick path reads is the same key the
+	 * panel writes, rather than a second answer to the same question.
+	 */
+	@Test
+	public void stayPutIsOffByDefaultAndReadsThroughToTheSnapshot()
+	{
+		assertFalse("a fresh install follows", FakeConfig.defaults().isStayPut());
+		assertTrue(new FakeConfig().setStayPut(true).settings().isStayPut());
+		assertFalse(new FakeConfig().setStayPut(false).settings().isStayPut());
+	}
+
+	/**
+	 * <b>Parking changes nothing else in the snapshot.</b> It is a suppression of two
+	 * behaviours in {@link FollowerWalk}, not a mode with its own settings — so the recall
+	 * distance, the formation, the facing and the pose are all still whatever the user set
+	 * them to, and are all still what comes back the moment it is switched off.
+	 */
+	@Test
+	public void parkingLeavesEveryOtherSettingExactlyAsItWas()
+	{
+		FakeConfig config = new FakeConfig()
+			.setFormation(EntourageFormation.HANGOUT)
+			.setFacing(FollowerFacing.NORTH)
+			.setIdlePose(EntouragePose.DANCE)
+			.setRecallDistance(15)
+			.setFollowDistance(2);
+
+		EntourageSettings following = config.settings();
+		EntourageSettings parked = config.setStayPut(true).settings();
+
+		assertTrue(parked.isStayPut());
+		assertEquals(following.getRecallDistance(), parked.getRecallDistance());
+		assertSame(following.getFormation(), parked.getFormation());
+		assertSame(following.getFacing(), parked.getFacing());
+		assertSame(following.getIdlePose(), parked.getIdlePose());
+		assertEquals(following.getFollowDistance(), parked.getFollowDistance());
+		assertEquals(following.isDialogue(), parked.isDialogue());
+	}
+
 	// --- The custom NPC id ----------------------------------------------------
 
 	/**
-	 * The typed id replaces the first slot's body and leaves the other four alone — see
-	 * {@link EntourageConfig}'s javadoc on why there is one of these rather than five.
+	 * <b>Every slot reads its own id, and the scene spawns five different bodies.</b> The
+	 * failure this catches is total and silent: one key read for all five slots gives an
+	 * entourage of five copies of whichever id was typed last.
+	 */
+	@Test
+	public void everySlotWearsItsOwnTypedId()
+	{
+		FakeConfig config = new FakeConfig().setRoster(EntourageFigure.ROGUE,
+			EntourageFigure.HANS, EntourageFigure.PIRATE, EntourageFigure.VANNAKA,
+			EntourageFigure.TURAEL);
+		for (int index = 0; index < EntourageSettings.MAX_FOLLOWERS; index++)
+		{
+			config.setCustomNpcIdAt(index, 3000 + index);
+		}
+
+		java.util.List<FollowerBody> bodies = config.settings().getBodies();
+
+		for (int index = 0; index < EntourageSettings.MAX_FOLLOWERS; index++)
+		{
+			assertTrue("slot " + index + " is not wearing a typed id",
+				bodies.get(index).isCustom());
+			assertEquals("slot " + index + " is wearing somebody else's id",
+				3000 + index, bodies.get(index).getNpcId());
+		}
+	}
+
+	/**
+	 * <b>The slot-to-key mapping, one slot at a time.</b> The test above would still pass if
+	 * two slots swapped keys with each other in a way that happened to preserve the set; this
+	 * one sets exactly one id and insists the other four stay empty, which is the assertion a
+	 * copy-paste in {@link EntourageSettings#customNpcIdAt} actually breaks.
+	 */
+	@Test
+	public void aTypedIdInOneSlotReachesThatSlotAndNoOther()
+	{
+		for (int wearing = 0; wearing < EntourageSettings.MAX_FOLLOWERS; wearing++)
+		{
+			java.util.List<FollowerBody> bodies = new FakeConfig()
+				.setRoster(EntourageFigure.ROGUE, EntourageFigure.HANS, EntourageFigure.PIRATE,
+					EntourageFigure.VANNAKA, EntourageFigure.TURAEL)
+				.setCustomNpcIdAt(wearing, 4931)
+				.settings().getBodies();
+
+			for (int index = 0; index < EntourageSettings.MAX_FOLLOWERS; index++)
+			{
+				assertEquals("id in slot " + wearing + ", checking slot " + index,
+					index == wearing, bodies.get(index).isCustom());
+			}
+		}
+	}
+
+	/**
+	 * <b>A typed id in a slot past the count is read by nobody.</b> The count decides how many
+	 * of the five are read at all, and an id sitting in slot 5 of a two-follower roster is a
+	 * setting waiting for the count to reach it — not a third follower.
+	 */
+	@Test
+	public void aTypedIdPastTheCountSpawnsNothing()
+	{
+		EntourageSettings settings = new FakeConfig()
+			.setRoster(EntourageFigure.ROGUE, EntourageFigure.HANS)
+			.setCustomNpcIdAt(4, 4931)
+			.settings();
+
+		assertEquals(2, settings.getRosterSize());
+		for (FollowerBody body : settings.getBodies())
+		{
+			assertFalse("an id past the count reached the roster", body.isCustom());
+		}
+	}
+
+	/**
+	 * <b>Every slot floors a hand-edited negative, because there is one floor.</b> The whole
+	 * point of routing all five through {@link FollowerBody#custom} is that the rule cannot be
+	 * right in one slot and wrong in another.
+	 */
+	@Test
+	public void aNegativeTypedIdIsFlooredInEverySlot()
+	{
+		for (int index = 0; index < EntourageSettings.MAX_FOLLOWERS; index++)
+		{
+			assertFalse("slot " + index + " read a negative as a typed id",
+				new FakeConfig().setFollowers(5).setCustomNpcIdAt(index, -7)
+					.settings().getBodies().get(index).isCustom());
+		}
+	}
+
+	/**
+	 * <b>{@link EntourageSettings#bodyAt} is the one answer, and the panel gets the same
+	 * one.</b> This is the guard on the refactor that made five typed ids possible: the
+	 * decision used to be written twice, once here and once in {@link RosterView}, and the day
+	 * they diverged the panel would name one follower while the world drew another.
+	 */
+	@Test
+	public void theSceneAndThePanelAgreeOnWhatEverySlotWears()
+	{
+		FakeConfig config = new FakeConfig().setRoster(EntourageFigure.ROGUE,
+			EntourageFigure.HANS, EntourageFigure.PIRATE, EntourageFigure.VANNAKA,
+			EntourageFigure.TURAEL);
+		config.setCustomNpcIdAt(1, 4932).setCustomNpcIdAt(3, 4934);
+
+		java.util.List<FollowerBody> bodies = config.settings().getBodies();
+		RosterView view = config.view();
+
+		for (int index = 0; index < EntourageSettings.MAX_FOLLOWERS; index++)
+		{
+			assertEquals("slot " + index + ": the panel and the scene disagree",
+				bodies.get(index).isCustom(), view.getSlot(index).isCustom());
+			assertEquals(bodies.get(index).getNpcId() == bodies.get(index).getFigure().getNpcId()
+					? FollowerBody.NO_CUSTOM_NPC : bodies.get(index).getNpcId(),
+				view.getSlot(index).getCustomNpcId());
+		}
+	}
+
+	/**
+	 * The typed id replaces the first slot's body and leaves the other four alone. Still true,
+	 * and now one case of five rather than the whole rule.
 	 */
 	@Test
 	public void aCustomIdReplacesTheFirstSlotAndNothingElse()

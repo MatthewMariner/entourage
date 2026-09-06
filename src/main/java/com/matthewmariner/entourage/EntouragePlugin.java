@@ -1,12 +1,18 @@
 package com.matthewmariner.entourage;
 
 import com.google.inject.Provides;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.Constants;
 import net.runelite.api.GameState;
+import net.runelite.api.NPCComposition;
 import net.runelite.api.WorldView;
 import net.runelite.api.events.BeforeRender;
 import net.runelite.api.events.GameStateChanged;
@@ -33,7 +39,10 @@ import net.runelite.client.util.ImageUtil;
  * {@code @PluginDescriptor}'s {@code description} below and
  * {@code runelite-plugin.properties}, are byte-identical to each other and are changed
  * together; they said "a small group" in two slightly different wordings, while the
- * plugin shipped one figure, until a review noticed.
+ * plugin shipped one figure, until a review noticed. {@code ListingMetadataTest} is what
+ * notices next time — it holds the description, the name, the tags and the plugin class
+ * name to the same pairing, so a hub listing and an in-client panel drifting apart is a
+ * red test rather than something only a submission checklist catches.
  *
  * <p><b>The settings are read by the scene, not by this class.</b> There is a
  * {@code @Provides} for the config interface at the bottom of this file and deliberately
@@ -91,7 +100,8 @@ import net.runelite.client.util.ImageUtil;
 	// figure. Change them together — and only when the roster really does what
 	// they say, which since the formation slice it does.
 	description = "Up to five cosmetic figures of your choosing that walk with you in formation, pose when you stop and say the odd thing",
-	tags = {"cosmetic", "follower", "entourage", "immersion", "npc", "dialogue", "formation"}
+	tags = {"cosmetic", "follower", "entourage", "immersion", "npc", "dialogue", "formation",
+		"favourite", "stay"}
 )
 public class EntouragePlugin extends Plugin
 {
@@ -414,6 +424,66 @@ public class EntouragePlugin extends Plugin
 			{
 				panel.refresh();
 			}
+		};
+	}
+
+	/**
+	 * The panel's only way to turn an NPC id into a name — see {@link NpcNames}.
+	 *
+	 * <p><b>Two thread hops, and both of them are the point.</b> This is called from the
+	 * event dispatch thread, because that is where a {@code PluginPanel} lives.
+	 * {@code ClientThread#invoke} takes the read onto the client thread, because
+	 * {@code getNpcDefinition} throws anywhere else. {@code SwingUtilities#invokeLater} takes
+	 * the answer back, because a Swing component may not be touched from the client thread.
+	 * Neither call starts a thread; both queue onto a loop that is already running, which is
+	 * what keeps this inside the Hub's "no threads" rule.
+	 *
+	 * <p>The braces around the lambda body are load-bearing for the reason
+	 * {@link #startUp()}'s are: {@code ClientThread} overloads {@code invoke} on
+	 * {@code Runnable} and {@code BooleanSupplier}, and a {@code BooleanSupplier} is
+	 * re-queued every tick until it returns true. A block lambda whose body is a bare
+	 * statement has no value, so only {@code Runnable} fits.
+	 *
+	 * <p><b>Every id is asked for inside its own try.</b> The client throws rather than
+	 * returning null for an id with no archive entry, and one bad id in a list of twenty must
+	 * cost that id's name rather than the other nineteen. An id that does not resolve is left
+	 * out of the map, which is what the panel reads as "draw the number".
+	 */
+	@Provides
+	NpcNames provideNpcNames(Client client, ClientThread clientThread)
+	{
+		return (npcIds, names) ->
+		{
+			// Copied before it crosses the thread boundary: the caller built this list on the
+			// event dispatch thread and is free to go on using it there, and a list read on
+			// the client thread while Swing edits it is the sort of fault that shows up once
+			// a month and never in a test.
+			final List<Integer> wanted = new ArrayList<>(npcIds);
+
+			clientThread.invoke(() ->
+			{
+				final Map<Integer, String> resolved = new HashMap<>();
+				for (int npcId : wanted)
+				{
+					try
+					{
+						NPCComposition composition = client.getNpcDefinition(npcId);
+						if (composition != null && composition.getName() != null)
+						{
+							resolved.put(npcId, composition.getName());
+						}
+					}
+					catch (RuntimeException notAnNpc)
+					{
+						// The ordinary "no such id" case — the client throws for a missing
+						// archive entry. Debug rather than warn: a typo in the id box is a
+						// user event, not a fault.
+						log.debug("no npc definition for {}", npcId, notAnNpc);
+					}
+				}
+
+				SwingUtilities.invokeLater(() -> names.accept(resolved));
+			});
 		};
 	}
 

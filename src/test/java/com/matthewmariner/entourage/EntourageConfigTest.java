@@ -51,8 +51,15 @@ public class EntourageConfigTest
 		assertEquals("figure3", EntourageConfig.KEY_FIGURE_3);
 		assertEquals("figure4", EntourageConfig.KEY_FIGURE_4);
 		assertEquals("figure5", EntourageConfig.KEY_FIGURE_5);
-		assertEquals("customNpcId", EntourageConfig.KEY_CUSTOM_NPC_ID);
+		assertEquals("the first slot's typed id predates the other four and cannot become "
+			+ "customNpcId1", "customNpcId", EntourageConfig.KEY_CUSTOM_NPC_ID);
+		assertEquals("customNpcId2", EntourageConfig.KEY_CUSTOM_NPC_ID_2);
+		assertEquals("customNpcId3", EntourageConfig.KEY_CUSTOM_NPC_ID_3);
+		assertEquals("customNpcId4", EntourageConfig.KEY_CUSTOM_NPC_ID_4);
+		assertEquals("customNpcId5", EntourageConfig.KEY_CUSTOM_NPC_ID_5);
+		assertEquals("favouriteNpcIds", EntourageConfig.KEY_FAVOURITE_NPC_IDS);
 		assertEquals("followDistance", EntourageConfig.KEY_FOLLOW_DISTANCE);
+		assertEquals("stayPut", EntourageConfig.KEY_STAY_PUT);
 		assertEquals("this one holds a formation now and is still called formationSlot",
 			"formationSlot", EntourageConfig.KEY_FORMATION);
 	}
@@ -95,6 +102,8 @@ public class EntourageConfigTest
 		assertEquals(EntouragePose.FIGURE_DEFAULT, config.idlePose());
 		assertTrue("running is on by default — without it a running player is never kept up with",
 			config.canRun());
+		assertFalse("and a fresh install follows rather than standing still, because a plugin "
+			+ "whose figures do not move is the plugin switched off", config.stayPut());
 	}
 
 	/**
@@ -135,6 +144,41 @@ public class EntourageConfigTest
 		assertEquals("anything off the end of the roster is the first slot's figure",
 			EntourageFigure.DEFAULT, EntourageFigure.defaultAt(-1));
 		assertEquals(EntourageFigure.DEFAULT, EntourageFigure.defaultAt(9));
+	}
+
+	/**
+	 * <b>The two keys that are not named the way their neighbours are, together in one
+	 * place.</b> Both are the first of five and both are missing the {@code 1} the other four
+	 * carry, and both are that way because they were written into profiles before there were
+	 * four others — a rename resets that setting, silently, for exactly the people who used it
+	 * most. This is the assertion a tidying pass has to go through.
+	 */
+	@Test
+	public void theFirstSlotsTwoKeysKeepTheUnnumberedNamesTheyShippedWith()
+	{
+		assertFalse("figure1 would reset every profile that has ever set a figure",
+			"figure1".equals(EntourageConfig.KEY_FIGURE));
+		assertFalse("customNpcId1 would reset every profile that has ever typed an id",
+			"customNpcId1".equals(EntourageConfig.KEY_CUSTOM_NPC_ID));
+
+		assertEquals("and the other four are numbered from two, which is the price of that",
+			"figure2", EntourageConfig.KEY_FIGURE_2);
+		assertEquals("customNpcId2", EntourageConfig.KEY_CUSTOM_NPC_ID_2);
+	}
+
+	/** Nobody has a typed id or a favourite until they type one. */
+	@Test
+	public void aFreshInstallHasNoTypedIdInAnySlotAndNoFavourites()
+	{
+		assertEquals(0, config.customNpcId());
+		assertEquals(0, config.customNpcId2());
+		assertEquals(0, config.customNpcId3());
+		assertEquals(0, config.customNpcId4());
+		assertEquals(0, config.customNpcId5());
+		assertEquals("", config.favouriteNpcIds());
+
+		assertTrue("and the parsed answer is the empty list rather than a one-entry one",
+			Favourites.parse(config.favouriteNpcIds()).isEmpty());
 	}
 
 	@Test

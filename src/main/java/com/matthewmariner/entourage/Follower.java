@@ -201,6 +201,53 @@ final class Follower
 	private NpcRecord customAnimations;
 
 	/**
+	 * The tile this follower was parked on, or {@code null} when it is not parked.
+	 *
+	 * <p><b>Why the pin exists at all, given that {@link FollowerWalk} already holds a
+	 * tile.</b> Because a follower does not always have a walk to hold it: every scene load
+	 * deactivates the entourage — see {@link EntourageScene#invalidate} — and the re-spawn
+	 * path below puts a follower that is not active back on the player, which for a parked
+	 * one would be a teleport home every time the player crossed a region boundary. The pin
+	 * is what the re-spawn uses instead.
+	 *
+	 * <p><b>A {@link WorldPoint}, so it survives a scene reload.</b> That is the whole reason
+	 * it is not a {@code LocalPoint}: world coordinates keep meaning the same place when the
+	 * scene's base moves, so walking out of a region and back finds the group where it was
+	 * left. A tile that does not map into the currently loaded scene simply does not spawn —
+	 * {@link #trySpawn} answers false on a null {@code LocalPoint} — so the follower is
+	 * <b>not drawn at all</b> rather than drawn somewhere else or clamped to the scene edge,
+	 * and it comes back the moment its tile is loaded again.
+	 *
+	 * <p>Cleared when the setting goes off, and dropped when it cannot be trusted — see
+	 * {@link #frozenInInstance}.
+	 *
+	 * <p><b>Also written from outside this class, exactly once, by {@link #adoptPin}.</b>
+	 * {@link EntourageScene#roster} rebuilds this follower's whole object on a roster edit,
+	 * which would otherwise reset the pin to null along with everything else — see that
+	 * method for why a roster edit is not the "walk again" the rest of this javadoc assumes.
+	 */
+	@Nullable
+	private WorldPoint frozenTile;
+
+	/**
+	 * Whether {@link #frozenTile} was recorded inside an instance.
+	 *
+	 * <p><b>An instance is the one place a world tile stops being a world tile.</b> The game
+	 * hands out a private copy of an area built out of template chunks, so the coordinate
+	 * {@link FollowerAnchor} derives — the scene's base plus the scene offset — addresses the
+	 * template rather than the place the player thinks they are. Carried across the boundary
+	 * it would name somewhere unrelated, and the failure mode is the bad one: usually the
+	 * tile is nowhere near the loaded scene and nothing draws, but occasionally it lands
+	 * inside it and a follower appears in a corner of the raid nobody parked it in.
+	 *
+	 * <p>So the pin is only honoured while the world view's instance-ness is the one it was
+	 * taken under. Crossing that boundary drops it and re-parks the group on the player,
+	 * which keeps "stay put" meaning "stay here" rather than "stay in a place that no longer
+	 * exists". Only read while {@link #frozenTile} is non-null.
+	 */
+	private boolean frozenInInstance;
+
+	/**
 	 * True once a typed NPC id has been turned down for good, at which point this follower
 	 * is the preset its slot's dropdown names.
 	 *
@@ -282,16 +329,16 @@ final class Follower
 	 * confirmation the feature has.</b> A typed id that worked puts that NPC's name over
 	 * the figure; one that was refused puts the dropdown figure's name there instead, so
 	 * "did my id take?" is answerable without opening a log. The composition's name is
-	 * used only when it is a real one — the cache's own placeholder for an unnamed NPC is
-	 * the four characters {@code null}, and a follower labelled "null" would read as a bug
-	 * rather than as an unnamed body.
+	 * used only when {@link NpcNames#isRealName} says it is one — the cache's own
+	 * placeholder for an unnamed NPC is the four characters {@code null}, and a follower
+	 * labelled "null" would read as a bug rather than as an unnamed body.
 	 */
 	String getDisplayName()
 	{
 		if (body.isCustom() && !customRejected && appearance != null)
 		{
 			String npcName = appearance.getNpcName();
-			if (npcName != null && !npcName.isEmpty() && !"null".equals(npcName))
+			if (NpcNames.isRealName(npcName))
 			{
 				return npcName;
 			}
@@ -449,19 +496,30 @@ final class Follower
 		// advanced for active followers would never let it try again.
 		ticksSinceAttempt++;
 
+		if (!settings.isStayPut())
+		{
+			// Unparked. The pin is forgotten here rather than where the walk resumes,
+			// because a follower can be unparked while it is inactive — and a pin that
+			// outlived the setting would send it back to a tile nobody asked for the next
+			// time it happened to be re-spawned.
+			frozenTile = null;
+		}
+
 		if (!isActive())
 		{
-			walk.placeAt(anchor.getTile());
+			walk.placeAt(respawnTile(anchor, worldView, settings));
 			if (spawn(worldView, settings))
 			{
 				// A figure that appears already pointing the right way, rather than one
 				// that appears facing south and turns 600ms later.
 				object.setOrientation(orientationFor(anchor, settings));
+				pinIfParked(worldView, settings);
 			}
 			return;
 		}
 
 		walk.tick(anchor.getTile(), worldView, settings, index);
+		pinIfParked(worldView, settings);
 
 		// select() compares controllers by identity, so a follower mid-walk re-selects
 		// the one it already has and the object is left alone — which is what keeps the
@@ -474,6 +532,120 @@ final class Follower
 		// heading for, which is where it stops — so the frame pass has to take at least
 		// one look before it may skip it again.
 		positionSettled = false;
+	}
+
+	/**
+	 * Where a follower that is not on screen should come back.
+	 *
+	 * <p>The player's tile normally — a follower that has never spawned, or whose scene was
+	 * thrown away, has no position worth keeping. A <b>parked</b> one does: it is standing
+	 * somewhere the user put it on purpose, and coming back on the player would undo the only
+	 * thing this setting does. So the pin wins, as long as it can still be trusted.
+	 *
+	 * @return the tile to place the walk on before trying to spawn
+	 */
+	private WorldPoint respawnTile(FollowerAnchor anchor, WorldView worldView,
+		EntourageSettings settings)
+	{
+		if (settings.isStayPut() && frozenTile != null
+			&& frozenInInstance == worldView.isInstance())
+		{
+			return frozenTile;
+		}
+
+		// Either not parked, or parked somewhere whose coordinates stopped meaning that place
+		// — see frozenInInstance. Dropped rather than carried, so the next tick re-parks the
+		// group where the player actually is.
+		frozenTile = null;
+		return anchor.getTile();
+	}
+
+	/**
+	 * Records the tile this follower is parked on, the first tick it is parked.
+	 *
+	 * <p><b>Guarded on the pin being absent rather than written every tick — and today,
+	 * nothing can tell the difference.</b> A parked follower's walk never moves:
+	 * {@code FollowerWalk.tick} returns as soon as it sees {@code settings.isStayPut()},
+	 * before anything below that line could change {@code currentTile()}, and the other
+	 * writer of a parked follower's position, {@link #respawnTile}, nulls the pin on every
+	 * path that does not return it unchanged. So every route to this method running twice in
+	 * a row with the follower actually having moved also passes through one of those two and
+	 * clears {@link #frozenTile} first — which makes the guard defence for an edit that has
+	 * not been written yet: the day something moves a parked follower without going through
+	 * {@code FollowerWalk.tick} or {@link #respawnTile}, this is what stops that move being
+	 * silently adopted as "where it was parked".
+	 */
+	private void pinIfParked(WorldView worldView, EntourageSettings settings)
+	{
+		if (settings.isStayPut() && frozenTile == null)
+		{
+			frozenTile = walk.currentTile();
+			frozenInInstance = worldView.isInstance();
+		}
+	}
+
+	/**
+	 * @return the tile this follower is parked on, or {@code null} if it is not parked.
+	 * Package-private for {@code FollowerTest}, which cannot otherwise tell "came back on its
+	 * own tile because it was pinned there" from "came back on its own tile because the player
+	 * happened to be standing on it".
+	 */
+	@Nullable
+	WorldPoint getFrozenTile()
+	{
+		return frozenTile;
+	}
+
+	/**
+	 * @return whether {@link #getFrozenTile()} was recorded inside an instance. Meaningless
+	 * while that is {@code null}, and never read that way — see {@link #frozenInInstance}.
+	 * Package-private for {@link EntourageScene#roster}, which is the one caller outside this
+	 * class that ever needs the flag: it has to travel with the tile it was recorded
+	 * alongside, or {@link #adoptPin} would let a tile be honoured under the wrong
+	 * instance-ness.
+	 */
+	boolean isFrozenInInstance()
+	{
+		return frozenInInstance;
+	}
+
+	/**
+	 * Hands this follower a pin it did not record for itself — the tile (and the
+	 * instance-ness it was recorded under) that some <i>other</i> {@link Follower} object
+	 * held before a roster edit tore it down.
+	 *
+	 * <p><b>Why this exists at all, given that {@link #pinIfParked} already writes
+	 * {@link #frozenTile} once.</b> {@link EntourageScene#roster} replaces every follower
+	 * outright the moment the configured roster stops matching the one it built — a new
+	 * figure, a slot added or removed, a typed id retyped — and a brand-new object's pin
+	 * starts {@code null} by construction. Left alone, that null pin sends every follower in
+	 * the roster home to the player's own tile for one tick, which is the whole bug this
+	 * method exists to close: a roster edit is not the same event as the player asking the
+	 * group to walk again, and only the second one should ever un-park anybody.
+	 *
+	 * <p><b>Called at most once, right after construction, and never through
+	 * {@link #pinIfParked}'s own guard.</b> This follower has never ticked, so there is no
+	 * "first tick parked" to distinguish it from — the guard {@link #pinIfParked} needs to
+	 * stop re-recording a tile every tick has nothing to protect against on an object that
+	 * has not had a tick yet. Writing the fields directly, rather than routing through that
+	 * method, is what keeps this call ignorant of a rule it does not need.
+	 *
+	 * <p><b>A {@code null} tile is a legitimate call, not a mistake worth guarding against.</b>
+	 * {@link EntourageScene#roster} does not know, for every index, whether the previous
+	 * roster had a pin to hand over — a slot the edit just added never did — so it is simpler
+	 * for the caller to pass through whatever it found than to test first. Handing this
+	 * follower {@code null} is exactly the state it already started in.
+	 *
+	 * @param tile       the tile to park on, or {@code null} for "nothing to adopt"
+	 * @param inInstance whether {@code tile} was recorded inside an instance — ignored when
+	 *                   {@code tile} is {@code null}, but never read that way regardless,
+	 *                   since {@link #respawnTile} and {@link #pinIfParked} both guard on
+	 *                   {@link #frozenTile} first
+	 */
+	void adoptPin(@Nullable WorldPoint tile, boolean inInstance)
+	{
+		frozenTile = tile;
+		frozenInInstance = inInstance;
 	}
 
 	/**

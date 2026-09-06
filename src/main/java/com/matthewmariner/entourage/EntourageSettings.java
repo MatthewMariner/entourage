@@ -255,6 +255,7 @@ final class EntourageSettings
 	private final EntourageFormation formation;
 	private final FollowerFacing facing;
 	private final boolean canRun;
+	private final boolean stayPut;
 	private final EntouragePose idlePose;
 	private final boolean hideInInstances;
 	private final boolean dialogue;
@@ -263,7 +264,7 @@ final class EntourageSettings
 	private final List<String> customLines;
 
 	private EntourageSettings(List<FollowerBody> bodies, int followDistance, int recallDistance,
-		EntourageFormation formation, FollowerFacing facing, boolean canRun,
+		EntourageFormation formation, FollowerFacing facing, boolean canRun, boolean stayPut,
 		EntouragePose idlePose, boolean hideInInstances, boolean dialogue,
 		int dialogueIntervalTicks, int dialogueDwellTicks, List<String> customLines)
 	{
@@ -273,6 +274,7 @@ final class EntourageSettings
 		this.formation = formation;
 		this.facing = facing;
 		this.canRun = canRun;
+		this.stayPut = stayPut;
 		this.idlePose = idlePose;
 		this.hideInInstances = hideInInstances;
 		this.dialogue = dialogue;
@@ -303,6 +305,7 @@ final class EntourageSettings
 			formation == null ? EntourageFormation.DEFAULT : formation,
 			facing == null ? FollowerFacing.AT_ME : facing,
 			config.canRun(),
+			config.stayPut(),
 			pose == null ? EntouragePose.FIGURE_DEFAULT : pose,
 			config.hideInInstances(),
 			config.dialogue(),
@@ -320,10 +323,8 @@ final class EntourageSettings
 	 * "who" have to be separate questions, and the count is the one that answers whether a
 	 * figure is in the entourage.
 	 *
-	 * <p><b>The custom id applies to slot 0 and nothing else</b> — see
-	 * {@link EntourageConfig}'s javadoc on why there is one of these rather than five. The
-	 * figure that slot's dropdown names is carried along anyway, as the fallback the
-	 * follower reverts to if the id turns out not to animate.
+	 * <p>Each body is {@link #bodyAt}'s answer — the one place that decides whether a slot
+	 * is wearing a typed id or its dropdown figure.
 	 *
 	 * @return the bodies, in roster order, unmodifiable and never empty
 	 */
@@ -331,21 +332,68 @@ final class EntourageSettings
 	{
 		int followers = effectiveFollowers(config.followers());
 
-		// Read raw and handed straight to FollowerBody.custom, which is where a typed id is
-		// floored and where the reasoning about its bounds lives. A second clamp here would
-		// be the same rule twice, and neither copy could then be broken by itself.
-		int customNpcId = config.customNpcId();
-
 		List<FollowerBody> bodies = new ArrayList<>(followers);
 		for (int index = 0; index < followers; index++)
 		{
-			EntourageFigure figure = figureAt(config, index);
-			bodies.add(index == 0
-				? FollowerBody.custom(customNpcId, figure)
-				: FollowerBody.preset(figure));
+			bodies.add(bodyAt(config, index));
 		}
 
 		return Collections.unmodifiableList(bodies);
+	}
+
+	/**
+	 * <b>Whose body one slot wears — the single answer, for every caller.</b>
+	 *
+	 * <p>This used to be two copies of one ternary: one here, inside {@link #readBodies},
+	 * and one in {@link RosterView#of}. Two copies at one slot is survivable; the day the
+	 * typed id became available in all five it would have been ten, and the day they
+	 * diverged the panel would name one follower while the world drew another — with no
+	 * error, in the one plugin whose entire output is which body is standing there. So
+	 * "what does slot N wear?" is asked in exactly one place, and both the scene and the
+	 * panel ask it.
+	 *
+	 * <p>Always through {@link FollowerBody#custom}, never a branch on
+	 * {@code FollowerBody.preset}: {@code custom} floors its argument at
+	 * {@link FollowerBody#NO_CUSTOM_NPC}, and a body built with a floored id is
+	 * value-equal to the preset, so the branch would have been two spellings of one
+	 * result. That is also where a hand-edited negative id is dealt with — the one place,
+	 * so a negative reads as "no typed id" on the panel exactly as it does on the tick
+	 * path.
+	 *
+	 * @param index which slot, 0-based
+	 * @return that slot's body: the typed id if it has one, and either way the dropdown
+	 * figure it falls back to. Never {@code null}.
+	 */
+	static FollowerBody bodyAt(EntourageConfig config, int index)
+	{
+		return FollowerBody.custom(customNpcIdAt(config, index), figureAt(config, index));
+	}
+
+	/**
+	 * @param index which slot, 0-based
+	 * @return the id typed into that slot's box, or {@link FollowerBody#NO_CUSTOM_NPC}.
+	 * Raw: the floor lives in {@link FollowerBody#custom}, and a second one here would be
+	 * the same rule written twice with neither copy falsifiable on its own.
+	 *
+	 * <p>Package-private for the reason {@link #figureAt} is, and it is the same failure:
+	 * a caller that read slot 4's id out of {@code customNpcId5()} would draw one NPC on a
+	 * card and spawn another in the world.
+	 */
+	static int customNpcIdAt(EntourageConfig config, int index)
+	{
+		switch (index)
+		{
+			case 1:
+				return config.customNpcId2();
+			case 2:
+				return config.customNpcId3();
+			case 3:
+				return config.customNpcId4();
+			case 4:
+				return config.customNpcId5();
+			default:
+				return config.customNpcId();
+		}
 	}
 
 	/**
@@ -608,6 +656,18 @@ final class EntourageSettings
 	boolean canRun()
 	{
 		return canRun;
+	}
+
+	/**
+	 * @return whether the entourage is parked where it stands rather than following.
+	 *
+	 * <p>This is a suppression of the movement subsystem, not a second one: see
+	 * {@link FollowerWalk#tick} for the one place it is honoured, and
+	 * {@link EntourageConfig#stayPut()} for why it takes the <i>recall</i> with it.
+	 */
+	boolean isStayPut()
+	{
+		return stayPut;
 	}
 
 	/** @return the pose it holds while standing still */

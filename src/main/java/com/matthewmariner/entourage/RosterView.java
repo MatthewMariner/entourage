@@ -6,18 +6,22 @@ import java.util.List;
 
 /**
  * What {@link EntourageRosterPanel} draws: five slots, the count that decides which of
- * them are in play, and the two movement dials the panel surfaces.
+ * them are in play, the movement dials the panel surfaces, and the starred NPC ids.
  *
  * <p><b>Everything the panel shows is in here, and nothing in here touches the client.</b>
  * That is the constraint, not a happy accident. {@code PluginManager} calls
  * {@code startUp()} and every Swing listener from the event dispatch thread, and a client
  * read off the client thread throws — {@code IllegalStateException} in a shipped client,
  * an assertion in a development one. A panel that resolved an NPC's real name to put on a
- * card would therefore break the plugin on every enable. So no card is built from
- * anything but the config proxy and two enums, which are safe to read anywhere, and the
- * one thing a live client could tell us — what NPC 4931 is actually called — is
- * deliberately not asked for. See {@link EntourageRosterPanel} for what the panel shows
- * instead.
+ * card would therefore break the plugin on every enable. So nothing here is built from
+ * anything but the config proxy and two enums, which are safe to read anywhere.
+ *
+ * <p><b>Including the favourites, which are a list of integers for exactly that reason.</b>
+ * What NPC 3598 is actually called is the one thing a live client could tell us and this
+ * cannot, and it is still not asked for <i>here</i>. It is asked for by
+ * {@link EntourageRosterPanel} through {@link NpcNames}, which does the reading on the
+ * client thread and hands the answer back to Swing — the only route that exists, and one
+ * this class deliberately stays on the far side of.
  *
  * <p><b>A snapshot, built per redraw.</b> Same reasoning as {@link EntourageSettings}, and
  * the same shape: read every value once so that a card cannot be drawn against one answer
@@ -47,14 +51,18 @@ final class RosterView
 	private final List<Slot> slots;
 	private final EntourageFormation formation;
 	private final int followDistance;
+	private final boolean stayPut;
+	private final List<Integer> favourites;
 
 	private RosterView(int followers, List<Slot> slots, EntourageFormation formation,
-		int followDistance)
+		int followDistance, boolean stayPut, List<Integer> favourites)
 	{
 		this.followers = followers;
 		this.slots = slots;
 		this.formation = formation;
 		this.followDistance = followDistance;
+		this.stayPut = stayPut;
+		this.favourites = favourites;
 	}
 
 	/**
@@ -65,29 +73,24 @@ final class RosterView
 	static RosterView of(EntourageConfig config)
 	{
 		int followers = EntourageSettings.effectiveFollowers(config.followers());
-		int customNpcId = config.customNpcId();
 
 		List<Slot> slots = new ArrayList<>(SLOTS);
 		for (int index = 0; index < SLOTS; index++)
 		{
-			EntourageFigure figure = EntourageSettings.figureAt(config, index);
-
-			// FollowerBody.custom is where a typed id is floored — the one place, so that a
-			// negative in a hand-edited profile reads as "no typed id" here exactly as it
-			// does on the tick path. Only slot 0 is offered it, which is the whole of the
-			// custom-id rule and is stated once, in EntourageConfig's javadoc.
-			FollowerBody body = index == 0
-				? FollowerBody.custom(customNpcId, figure)
-				: FollowerBody.preset(figure);
-
-			slots.add(new Slot(index, body, index < followers));
+			// EntourageSettings.bodyAt is the only place that decides whether a slot is
+			// wearing a typed id or its dropdown figure. It used to be decided here too, in
+			// a second copy of the same ternary — which is how a panel comes to name one
+			// follower while the world draws another.
+			slots.add(new Slot(index, EntourageSettings.bodyAt(config, index), index < followers));
 		}
 
 		EntourageFormation formation = config.formation();
 
 		return new RosterView(followers, Collections.unmodifiableList(slots),
 			formation == null ? EntourageFormation.DEFAULT : formation,
-			EntourageSettings.effectiveFollowDistance(config.followDistance()));
+			EntourageSettings.effectiveFollowDistance(config.followDistance()),
+			config.stayPut(),
+			Favourites.parse(config.favouriteNpcIds()));
 	}
 
 	/** @return how many figures walk with you, 1..{@link #SLOTS} */
@@ -126,16 +129,48 @@ final class RosterView
 		return followDistance;
 	}
 
-	/** @return the typed NPC id in force, or {@link FollowerBody#NO_CUSTOM_NPC} */
-	int getCustomNpcId()
+	/**
+	 * @return whether the entourage is parked where it stands rather than following.
+	 *
+	 * <p>Read straight off the config rather than through a clamp, because a boolean has
+	 * nothing to clamp — and it is the scene's own answer, {@link EntourageSettings#isStayPut},
+	 * reading the same key. There is no third state: a profile holding anything
+	 * {@code ConfigManager} cannot parse as a boolean comes back as the item's default, which
+	 * is "following".
+	 */
+	boolean isStayPut()
 	{
-		return getSlot(0).getCustomNpcId();
+		return stayPut;
 	}
 
-	/** @return whether the first slot is wearing a typed id rather than its dropdown figure */
-	boolean isCustom()
+	/**
+	 * @return the starred NPC ids, newest first. Never {@code null}, never longer than
+	 * {@link Favourites#MAX}, and unmodifiable.
+	 *
+	 * <p><b>Ids, not names.</b> Nothing on this side of the plugin can turn 3598 into
+	 * "Gummy" — that needs the client, and the client throws off the client thread, which is
+	 * the thread every card here is built on. {@link EntourageRosterPanel} asks for the names
+	 * separately and draws the bare id until one arrives.
+	 */
+	List<Integer> getFavourites()
 	{
-		return getSlot(0).isCustom();
+		return favourites;
+	}
+
+	/** @param npcId the id to look for @return whether it is starred */
+	boolean isFavourite(int npcId)
+	{
+		return favourites.contains(npcId);
+	}
+
+	/**
+	 * @return whether another id may be starred. False at {@link Favourites#MAX}, where
+	 * starring one more would silently drop the oldest — see {@link Favourites#with}, which
+	 * does exactly that, and this is what lets the panel say so instead of doing it quietly.
+	 */
+	boolean canFavourite()
+	{
+		return favourites.size() < Favourites.MAX;
 	}
 
 	/** @return whether there is room for another follower */

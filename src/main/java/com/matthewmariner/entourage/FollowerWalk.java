@@ -201,7 +201,35 @@ final class FollowerWalk
 
 		// Before the recall check, so that a follower which is put back still knows which
 		// way the player was going and forms up on the right side of them.
+		//
+		// And before the stay-put check below, so that a group parked against a wall while
+		// the player walks a lap of the room forms up correctly the moment it is unfrozen,
+		// rather than on a heading from whenever it was parked.
 		updateHeading(anchor);
+
+		if (settings.isStayPut())
+		{
+			// Parked. Everything above this line has already happened — the step that was in
+			// flight is closed out on the tile it was walking to, so freezing mid-stride ends
+			// on a whole tile with no half-played walk cycle, and `moving` is false, which is
+			// what makes Follower select the idle controller rather than leaving a walk
+			// animation running on the spot.
+			//
+			// THE RETURN IS ABOVE THE RECALL, AND THAT IS THE FEATURE. The recall below puts
+			// a follower back on the player's tile once it is further away than
+			// getRecallDistance(), which defaults to twelve tiles and exists to rescue one
+			// stranded behind a wall. Parking the entourage on a wall at God Wars and then
+			// walking into the boss room is a hundred tiles; with the recall still live, the
+			// entire effect of this setting would be that your entourage teleports into the
+			// fight with you. Moving this check below the recall, or "fixing" the recall to
+			// run first, is the one change to this method that looks like a tidy-up and is
+			// actually a deletion of the feature — FollowerWalkTest holds it.
+			//
+			// The facing is not suppressed here and cannot be: it is Follower's answer, taken
+			// from the setting whenever isMoving() is false. A frozen group that still turns
+			// to watch you is the point of parking them.
+			return;
+		}
 
 		int toAnchor = chebyshevTo(anchor.getX(), anchor.getY());
 		if (anchor.getPlane() != plane || toAnchor > settings.getRecallDistance())

@@ -1080,4 +1080,170 @@ public class FollowerTest
 		assertFalse("and not the human rig's", client.animationsLoaded()
 			.contains(EntourageAnimation.HUMAN_WALK.getId()));
 	}
+
+	// --- Stay put ------------------------------------------------------------
+
+	private static EntourageSettings parked()
+	{
+		return new FakeConfig().setStayPut(true).settings();
+	}
+
+	/**
+	 * <b>Parking mid-walk drops straight into the idle pose.</b> The walk is over as far as
+	 * this class is concerned — {@code isMoving()} is false — so {@code controllerFor} picks
+	 * the idle controller, and it is the same one the follower held before it set off rather
+	 * than a fresh one, which is what keeps the pose from restarting at frame zero.
+	 */
+	@Test
+	public void parkingAWalkingFollowerPutsItBackIntoItsPose()
+	{
+		Follower follower = settled(walkOnly());
+		AnimationController pose = follower.getInstalledController();
+		assertNotNull("the fixture leaves it holding a pose", pose);
+
+		follower.onGameTick(at(EAST), view, walkOnly());
+		assertTrue("this test needs it actually walking", follower.getWalk().isMoving());
+		assertNotSame(pose, follower.getInstalledController());
+
+		follower.onGameTick(at(EAST), view, parked());
+
+		assertFalse("it stopped", follower.getWalk().isMoving());
+		assertSame("and went back to the pose it already had", pose,
+			follower.getInstalledController());
+	}
+
+	/**
+	 * <b>Parked is not frozen: a parked follower still turns to watch you.</b> That is the
+	 * effect the feature was asked for — a group posted up along a wall that tracks you
+	 * around the room — and it comes for free because the facing is applied whenever the
+	 * follower is not moving. Which is exactly why it needs a test: it is a behaviour nothing
+	 * here writes down, and a suppression written one line too wide would take it out.
+	 */
+	@Test
+	public void aParkedFollowerStillTurnsToWatchYou()
+	{
+		Follower follower = settled(new FakeConfig()
+			.setFacing(FollowerFacing.AT_ME).setStayPut(true).settings());
+		EntourageSettings settings = new FakeConfig()
+			.setFacing(FollowerFacing.AT_ME).setStayPut(true).settings();
+
+		follower.onGameTick(at(ANCHOR.dx(4)), view, settings);
+		int lookingEast = follower.getRenderOrientation();
+
+		follower.onGameTick(at(ANCHOR.dy(4)), view, settings);
+		int lookingNorth = follower.getRenderOrientation();
+
+		assertEquals("it did not move", ANCHOR, follower.getWalk().currentTile());
+		assertNotEquals("but it turned to follow the player round", lookingEast, lookingNorth);
+	}
+
+	/**
+	 * <b>A parked follower that goes off screen comes back on its own tile, not on
+	 * yours.</b> Every scene load deactivates the entourage, and the ordinary respawn path
+	 * puts an inactive follower back on the player — which for a parked one would be a
+	 * teleport home every time the player crossed a region boundary, i.e. the feature
+	 * quietly not working over any distance worth using it for.
+	 */
+	@Test
+	public void aParkedFollowerComesBackOnTheTileItWasParkedOn()
+	{
+		Follower follower = settled(parked());
+		follower.onGameTick(at(PLAYER), view, parked());
+		assertEquals(ANCHOR, follower.getFrozenTile());
+
+		follower.despawn();
+		assertFalse(follower.isActive());
+
+		follower.onGameTick(at(EAST), view, parked());
+
+		assertTrue("it came back", follower.isActive());
+		assertEquals("on the tile it was parked on rather than on the player's",
+			ANCHOR, follower.getWalk().currentTile());
+	}
+
+	/**
+	 * <b>A parked tile outside the loaded scene draws nothing at all.</b> Not clamped to the
+	 * scene edge and not moved to the player: either would be a figure standing somewhere
+	 * nobody put it. It comes back the moment its tile is loaded again, which is what makes
+	 * "walk out of the region and come back" work.
+	 */
+	@Test
+	public void aParkedFollowerOutsideTheLoadedSceneIsNotDrawnAndThenComesBack()
+	{
+		Follower follower = settled(parked());
+		follower.onGameTick(at(PLAYER), view, parked());
+		follower.despawn();
+
+		// A scene somewhere else entirely — the player has walked far enough that the tile
+		// the group was parked on is no longer in the loaded map.
+		FakeWorldView elsewhere = FakeWorldView.around(ANCHOR.dx(2_000));
+		client.setTopLevelWorldView(elsewhere);
+		follower.onGameTick(at(ANCHOR.dx(2_000), elsewhere), elsewhere, parked());
+
+		assertFalse("nothing is drawn rather than something drawn in the wrong place",
+			follower.isActive());
+		assertEquals("and nothing is registered with the client", 0, client.registeredCount());
+		assertEquals("the pin is kept, because a world tile still means that place",
+			ANCHOR, follower.getFrozenTile());
+
+		// And back again.
+		client.setTopLevelWorldView(view);
+		follower.onGameTick(at(PLAYER), view, parked());
+
+		assertTrue("it is picked up again the moment its tile is loaded", follower.isActive());
+		assertEquals(ANCHOR, follower.getWalk().currentTile());
+	}
+
+	/**
+	 * <b>The pin does not cross an instance boundary.</b> Inside an instance the game builds
+	 * a private copy of an area out of template chunks, so the tile the anchor derives names
+	 * the template rather than the place the player is standing. Carried across the boundary
+	 * it would usually be nowhere near the loaded scene — harmless — but occasionally inside
+	 * it, which is a follower appearing in a corner of a raid nobody parked it in. So the pin
+	 * is dropped and the group re-parks on the player.
+	 */
+	@Test
+	public void theParkedTileIsDroppedWhenTheInstanceBoundaryIsCrossed()
+	{
+		Follower follower = settled(parked());
+		follower.onGameTick(at(PLAYER), view, parked());
+		assertEquals(ANCHOR, follower.getFrozenTile());
+
+		follower.despawn();
+
+		FakeWorldView raid = FakeWorldView.around(ANCHOR).asInstance();
+		client.setTopLevelWorldView(raid);
+		follower.onGameTick(at(PLAYER, raid), raid, parked());
+
+		assertTrue(follower.isActive());
+		assertEquals("re-parked where the player actually is",
+			PLAYER, follower.getWalk().currentTile());
+		assertEquals(PLAYER, follower.getFrozenTile());
+	}
+
+	/** Unparking forgets where they were told to stand, so the next respawn is the ordinary one. */
+	@Test
+	public void unparkingForgetsThePinnedTile()
+	{
+		Follower follower = settled(parked());
+		follower.onGameTick(at(PLAYER), view, parked());
+		assertNotNull(follower.getFrozenTile());
+
+		follower.onGameTick(at(PLAYER), view, defaults());
+
+		assertNull(follower.getFrozenTile());
+	}
+
+	/** A follower that has never spawned parks where it first appears, which is on the player. */
+	@Test
+	public void aFollowerThatHasNeverSpawnedParksWhereItFirstAppears()
+	{
+		Follower follower = follower();
+
+		follower.onGameTick(at(PLAYER), view, parked());
+
+		assertTrue(follower.isActive());
+		assertEquals(PLAYER, follower.getWalk().currentTile());
+		assertEquals(PLAYER, follower.getFrozenTile());
+	}
 }

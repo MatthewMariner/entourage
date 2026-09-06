@@ -1154,4 +1154,147 @@ public class FollowerWalkTest
 			Math.min(Math.max(tile.getY(), START.getY() - 20), START.getY() + 20),
 			tile.getPlane());
 	}
+
+	// --- Stay put -------------------------------------------------------------
+
+	private static EntourageSettings parked()
+	{
+		return new FakeConfig().setStayPut(true).settings();
+	}
+
+	@Test
+	public void aParkedFollowerDoesNotStep()
+	{
+		FakeWorldView view = scene();
+		FollowerWalk walk = new FollowerWalk(START);
+
+		for (int tick = 0; tick < 10; tick++)
+		{
+			walk.tick(START.dx(3).dy(3), view, parked());
+		}
+
+		assertEquals("it holds the tile it was on", START, walk.currentTile());
+		assertFalse(walk.isMoving());
+		assertFalse(walk.isRunning());
+	}
+
+	/**
+	 * <b>The recall is suppressed, and this is the test that stops somebody "fixing" it.</b>
+	 *
+	 * <p>The recall exists to rescue a follower stranded behind a wall: past
+	 * {@code getRecallDistance()} — twelve tiles by default — it is put back on the player's
+	 * own tile. Parking the entourage against a wall at God Wars and then walking into the
+	 * boss room is far further than twelve tiles, so a freeze that left the recall running
+	 * would teleport the whole group into the fight. That is not a bug the feature has to
+	 * tolerate; it is the feature inverted.
+	 *
+	 * <p>Written at four times the recall distance so that no plausible change to the
+	 * threshold makes this pass by accident.
+	 */
+	@Test
+	public void aParkedFollowerIsNeverRecalledHoweverFarThePlayerGoes()
+	{
+		FakeWorldView view = scene();
+		FollowerWalk walk = new FollowerWalk(START);
+		EntourageSettings settings = parked();
+
+		WorldPoint faraway = START.dx(settings.getRecallDistance() * 4);
+		for (int tick = 0; tick < 20; tick++)
+		{
+			walk.tick(faraway, view, settings);
+		}
+
+		assertEquals("it stayed where it was parked", START, walk.currentTile());
+		assertTrue("and the player really is well past the recall distance",
+			faraway.distanceTo(START) > settings.getRecallDistance());
+	}
+
+	/**
+	 * And the same follower, unparked, <i>is</i> recalled — because at that distance a recall
+	 * is exactly the right thing. Without this the test above would also pass on a walk that
+	 * had simply lost the ability to recall at all.
+	 */
+	@Test
+	public void thatSameFollowerIsRecalledTheMomentItIsUnparked()
+	{
+		FakeWorldView view = scene();
+		FollowerWalk walk = new FollowerWalk(START);
+
+		WorldPoint faraway = START.dx(FakeConfig.defaults().getRecallDistance() * 4);
+		walk.tick(faraway, view, parked());
+		assertEquals(START, walk.currentTile());
+
+		walk.tick(faraway, view, defaults());
+
+		assertEquals("unparked, a follower that far behind is put back on the player",
+			faraway, walk.currentTile());
+	}
+
+	/**
+	 * <b>Parking mid-stride ends on a whole tile, not half of one.</b> The step in flight is
+	 * closed out at the top of the tick — the drawn position has caught up with the tile it
+	 * was walking to — so there is no half-played walk cycle and nothing to slide.
+	 */
+	@Test
+	public void parkingMidWalkFinishesTheTileItWasWalkingToAndStops()
+	{
+		FakeWorldView view = scene();
+		FollowerWalk walk = new FollowerWalk(START);
+
+		walk.tick(START.dx(6), view, collinear());
+		assertTrue("the fixture needs it to actually be walking", walk.isMoving());
+		WorldPoint midStride = walk.currentTile();
+
+		walk.tick(START.dx(6), view, new FakeConfig()
+			.setFormation(EntourageFormation.LEFT).setStayPut(true).settings());
+
+		assertEquals("it kept the tile it was walking to", midStride, walk.currentTile());
+		assertFalse("and it is standing, which is what selects the idle pose",
+			walk.isMoving());
+		assertEquals("with nothing left to interpolate", walk.currentTile(),
+			walk.stepStartTile());
+	}
+
+	/**
+	 * <b>The heading is still tracked while parked.</b> A group parked while the player walks
+	 * a lap of the room has to form up on the right side of them the moment it is unparked —
+	 * not on a heading from whenever it was parked, which would put the whole formation
+	 * behind the wrong shoulder for one tick.
+	 */
+	@Test
+	public void aParkedFollowerStillWatchesWhichWayThePlayerIsGoing()
+	{
+		FakeWorldView view = scene();
+		FollowerWalk walk = new FollowerWalk(START);
+		EntourageSettings settings = parked();
+
+		// The player walks west, twice, so there are two consecutive observations to take a
+		// heading from.
+		walk.tick(START.dx(-1), view, settings);
+		walk.tick(START.dx(-2), view, settings);
+
+		assertEquals("westward", -1, walk.getHeadingX());
+		assertEquals(0, walk.getHeadingY());
+		assertEquals("and it still has not moved", START, walk.currentTile());
+	}
+
+	/** Unparking puts it back on its station through the ordinary follow. */
+	@Test
+	public void unparkingResumesTheOrdinaryWalk()
+	{
+		FakeWorldView view = scene();
+		FollowerWalk walk = new FollowerWalk(START);
+
+		walk.tick(START.dx(3), view, new FakeConfig()
+			.setFormation(EntourageFormation.LEFT).setStayPut(true).settings());
+		assertEquals(START, walk.currentTile());
+
+		WorldPoint station = walk.stationTile(START.dx(3), collinear());
+		for (int tick = 0; tick < 10; tick++)
+		{
+			walk.tick(START.dx(3), view, collinear());
+		}
+
+		assertEquals("it walked back to where it belongs", station, walk.currentTile());
+	}
 }
