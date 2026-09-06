@@ -21,9 +21,9 @@ read.
 > **Not on the Plugin Hub yet.** Build and run it yourself — see
 > [Development](#development) below.
 
-![Three followers in a hangout ring outside Varrock's east bank, two seated, one
-mid-step, each with its name above it and the thief saying "That pocket looked
-heavy."](docs/img/hero.png)
+![Five followers walking behind the player across a stone platform — a Zamorak
+mage, a farmer and three Elite Black Knights — each with its name above it, one
+of the knights saying "We are watching."](docs/img/hero.png)
 
 ---
 
@@ -73,6 +73,13 @@ the moment you stop, rather than standing there as static, sliding meshes.
   self-consistent. There's a switch to hide it in them if you'd rather.
 - **Is entirely local.** No packet is sent, nobody else's client draws it, and
   nothing about any other player is read.
+
+![Two copies of Nieve flanking the player, one either side, walking in step —
+both mid-stride with a spear in hand, each with its name above
+it.](docs/img/formation.png)
+
+<sup>Both are carrying Nieve's own walk cycle, spear and shield and all — not a
+generic stride played underneath a different model.</sup>
 
 ## Settings
 
@@ -196,6 +203,14 @@ Hans, Sir Amik Varze, Sir Vyvin and Ghommal**. The other twelve — the rogue, t
 thief, the farmer, the knights, the mages — are generic bodies out of the cache
 with no recorded speech at all, so **their lines were written for this plugin**.
 Nothing here is a paraphrase presented as a quote.
+
+![Three followers spread along a stone path — a sorceress sitting down on the
+verge, Hans standing behind the player, and a thief saying "Look
+busy."](docs/img/hangout.png)
+
+<sup>Hans is one of the eleven whose lines come off the wiki; the thief is one of
+the twelve whose don't. The sorceress is sitting because that's the idle pose she
+was given, and she'll stand the moment the group moves off.</sup>
 
 Two notes on the quoted ones. The six slayer masters share a script in game —
 *"'Ello, and what are you after then?"* and two more are word for word the same
