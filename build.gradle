@@ -21,7 +21,7 @@ repositories {
 // substitutes its own build.gradle for `build=standard` submissions and always
 // builds against its own resolved client version regardless of what this file
 // says, so this pin affects local dev and test builds only, never what actually
-// ships. 1.12.38 matches gunnars-tools' and dangerous-teleport's pins — the
+// ships. 1.12.38 matches gunnars-tools' pin — the
 // newest <release> (never <latest>, which is a snapshot) in
 // https://repo.runelite.net/net/runelite/client/maven-metadata.xml as of this
 // scaffold. Every javadoc in this repo that cites a disassembly cites 1.12.38.
