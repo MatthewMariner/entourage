@@ -13,7 +13,7 @@ read.
 [![RuneLite](https://img.shields.io/badge/RuneLite-1.12.38-blue)](https://runelite.net)
 [![Java](https://img.shields.io/badge/Java-11-orange)](https://runelite.net)
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-541-brightgreen)](#development)
+[![Tests](https://img.shields.io/badge/tests-543-brightgreen)](#development)
 
 </div>
 
@@ -296,7 +296,7 @@ holding a pose at the time. If it's a crash or a figure that never appears,
 ## Development
 
 ```bash
-./gradlew build     # compile and run the 541 tests
+./gradlew build     # compile and run the 543 tests
 ./gradlew test      # tests only, every name printed
 ./gradlew run       # launch a dev client with the plugin loaded
 ```

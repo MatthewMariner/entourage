@@ -83,6 +83,17 @@ class EntourageRosterPanel extends PluginPanel
 	private static final int ROSTER = -1;
 
 	/**
+	 * How wide a wrapped line inside a slot card is allowed to be.
+	 *
+	 * <p>Narrower than {@link #PANEL_WIDTH}: the card's own border eats 16 pixels
+	 * ({@code EmptyBorder(6, 8, 6, 8)}) before a subtitle ever sees them, and a
+	 * removable slot's × column eats a further ~24. Sized for that worst case rather
+	 * than measured per-card, so a subtitle never has to ask whether its card happens
+	 * to have a × on it today — see {@link #slotCard}.
+	 */
+	private static final int CARD_TEXT_WIDTH = 150;
+
+	/**
 	 * What the panel is for, in the register the rest of the plugin's documentation uses.
 	 *
 	 * <p>It says the two things somebody has to know that are not visible from the cards:
@@ -267,24 +278,28 @@ class EntourageRosterPanel extends PluginPanel
 
 		JLabel heading = new JLabel(slot.getHeading());
 		heading.setFont(FontManager.getRunescapeSmallFont());
-		heading.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		heading.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		text.add(left(heading));
 
 		JLabel title = new JLabel(slot.getTitle());
 		title.setFont(FontManager.getRunescapeBoldFont());
+		// Inactive is a real state, not an excuse to go unreadable: LIGHT_GRAY_COLOR still
+		// reads as dimmer than an active slot's BRAND_ORANGE, and still clears body-text
+		// contrast against the card, which MEDIUM_GRAY_COLOR never did.
 		title.setForeground(slot.isActive()
-			? ColorScheme.BRAND_ORANGE : ColorScheme.MEDIUM_GRAY_COLOR);
+			? ColorScheme.BRAND_ORANGE : ColorScheme.LIGHT_GRAY_COLOR);
 		text.add(left(title));
-
-		JLabel subtitle = new JLabel(slot.getSubtitle());
-		subtitle.setFont(FontManager.getRunescapeSmallFont());
-		subtitle.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
-		text.add(left(subtitle));
 
 		// CENTER rather than WEST: BorderLayout gives a WEST child its full preferred width,
 		// so a long subtitle — "Typed id, or Elite Black Knight if refused" — would push the
-		// × off the end of a 225-pixel card. In CENTER it gets what is left and clips itself
-		// with an ellipsis, which is the half of the card that can afford to lose a word.
+		// × off the end of a 225-pixel card. In CENTER it gets what is left; wrapped() below
+		// is what keeps that from ellipsising away the half of the sentence that says what a
+		// refused id falls back to.
+		JLabel subtitle = wrapped(slot.getSubtitle(), CARD_TEXT_WIDTH);
+		subtitle.setFont(FontManager.getRunescapeSmallFont());
+		subtitle.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		text.add(left(subtitle));
+
 		card.add(text, BorderLayout.CENTER);
 
 		if (slot.isActive() && view.canRemove())
@@ -444,7 +459,10 @@ class EntourageRosterPanel extends PluginPanel
 
 			JLabel pip = new JLabel(Integer.toString(value));
 			pip.setFont(FontManager.getRunescapeSmallFont());
-			pip.setForeground(lit ? ColorScheme.BRAND_ORANGE : ColorScheme.MEDIUM_GRAY_COLOR);
+			// Unlit is deliberately dimmer than the lit choice, but still a real text
+			// colour — MEDIUM_GRAY_COLOR here read as almost the same grey as the pip's own
+			// unlit fill, which is a border colour standing in for body text.
+			pip.setForeground(lit ? ColorScheme.BRAND_ORANGE : ColorScheme.LIGHT_GRAY_COLOR);
 			pip.setOpaque(true);
 			pip.setBackground(lit ? ColorScheme.DARKER_GRAY_HOVER_COLOR : ColorScheme.DARKER_GRAY_COLOR);
 			pip.setBorder(new EmptyBorder(2, 6, 2, 6));
@@ -577,7 +595,7 @@ class EntourageRosterPanel extends PluginPanel
 		{
 			JLabel mark = new JLabel("in this slot");
 			mark.setFont(FontManager.getRunescapeSmallFont());
-			mark.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+			mark.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 			row.add(mark, BorderLayout.EAST);
 		}
 
@@ -732,7 +750,9 @@ class EntourageRosterPanel extends PluginPanel
 		// The client's own face rather than the game's: the RuneScape font is a bitmap face
 		// and does not carry a multiplication sign.
 		label.setFont(FontManager.getDefaultBoldFont().deriveFont(Font.BOLD, 12f));
-		label.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		// Resting state is still a text colour someone can read without hovering — a "×"
+		// that only exists at MEDIUM_GRAY_COLOR is a remove action nobody can see is there.
+		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		label.setBorder(new EmptyBorder(0, 6, 0, 2));
 		label.setToolTipText(tooltip);
 		label.setCursor(new Cursor(Cursor.HAND_CURSOR));
@@ -753,7 +773,7 @@ class EntourageRosterPanel extends PluginPanel
 			@Override
 			public void mouseExited(MouseEvent event)
 			{
-				label.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+				label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 			}
 		});
 
@@ -785,16 +805,28 @@ class EntourageRosterPanel extends PluginPanel
 
 	private static JLabel muted(String text)
 	{
-		// A one-cell table rather than a styled div, and the difference is not cosmetic: a
-		// CSS width on a div or a body is honoured when the view is *painted* and ignored when
-		// its preferred size is *measured*, so the label asks for 266 pixels in a 225-pixel
-		// sidebar and every line runs off the right edge. A table cell's width participates in
-		// the measurement, which is the whole job. Checked by rendering all three offline.
-		JLabel label = new JLabel("<html><table><tr><td width='" + (PANEL_WIDTH - 32) + "'>"
-			+ text + "</td></tr></table></html>");
+		JLabel label = wrapped(text, PANEL_WIDTH - 32);
 		label.setFont(FontManager.getRunescapeSmallFont());
-		label.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		return label;
+	}
+
+	/**
+	 * A label that wraps at {@code width} pixels instead of running off the sidebar.
+	 *
+	 * <p>A one-cell table rather than a styled div, and the difference is not cosmetic: a
+	 * CSS width on a div or a body is honoured when the view is <i>painted</i> and ignored
+	 * when its preferred size is <i>measured</i>, so the label asks for 266 pixels in a
+	 * 225-pixel sidebar and every line runs off the right edge. A table cell's width
+	 * participates in the measurement, which is the whole job. Checked by rendering all
+	 * three offline.
+	 *
+	 * <p>Callers still choose their own font and colour — this only owns the wrap.
+	 */
+	private static JLabel wrapped(String text, int width)
+	{
+		return new JLabel("<html><table><tr><td width='" + width + "'>"
+			+ text + "</td></tr></table></html>");
 	}
 
 	/** Vertical space, as a component, because BoxLayout has no gap of its own. */
